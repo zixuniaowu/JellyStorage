@@ -1,0 +1,21 @@
+# Android Studio / Gradle
+.gradle/
+.kotlin/
+.idea/
+*.iml
+local.properties
+**/build/
+**/.cxx/
+**/.externalNativeBuild/
+
+# Generated packages and reports
+*.apk
+*.aab
+*.aar
+reports/
+build_out.txt
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- jelly body -->
+    <path
+        android:fillColor="#4ADE80"
+        android:pathData="M54,28c-16,0 -28,12 -28,30c0,14 10,26 28,26s28,-12 28,-26c0,-18 -12,-30 -28,-30z"/>
+    <path
+        android:fillColor="#86EFAC"
+        android:pathData="M42,40c4,-6 12,-8 18,-6c-6,4 -10,10 -12,16c-4,-2 -6,-6 -6,-10z"/>
+    <!-- eyes -->
+    <path android:fillColor="#0F172A" android:pathData="M44,52a4,5 0 1,0 0.1,0z"/>
+    <path android:fillColor="#0F172A" android:pathData="M64,52a4,5 0 1,0 0.1,0z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M45,50a1.5,1.5 0 1,0 0.1,0z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M65,50a1.5,1.5 0 1,0 0.1,0z"/>
+    <!-- smile -->
+    <path
+        android:strokeColor="#0F172A"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M46,64c4,5 12,5 16,0"/>
+</vector>
