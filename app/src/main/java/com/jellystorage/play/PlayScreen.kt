@@ -109,11 +109,16 @@ internal fun arenaControlLayout(w: Float, h: Float): ArenaControlLayout {
     )
 }
 
+/** 命中区相对绘制半径的统一放大系数。普攻单独收敛到 1.2×，
+ *  消除旧版 1.45× 膨胀区吞掉相邻技能键视觉圆的问题 */
+internal const val ARENA_HIT_SLOP = 1.25f
+internal const val ARENA_HIT_SLOP_ATTACK = 1.2f
+
 /**
  * Compose 的 PointerInputChange 在部分设备上会在“左指先按、右指后按”时错误平移
  * 第二指坐标。战斗改用原始 MotionEvent 后，摇杆和按钮始终使用同一套局部坐标。
  */
-private class ArenaRawTouchState {
+internal class ArenaRawTouchState {
     var joyId = -1
     var basicId = -1
     var skill1Id = -1
@@ -121,6 +126,9 @@ private class ArenaRawTouchState {
     var skill3Id = -1
     var ultId = -1
     var joyOrigin = Offset.Zero
+
+    /** 已按下手指最近一次事件时刻（uptime ms）。系统手势截胡丢失 UP 时按超时回收，防止角色永久卡住 */
+    val lastSeen = HashMap<Int, Long>()
 
     fun reset() {
         joyId = -1
@@ -130,6 +138,21 @@ private class ArenaRawTouchState {
         skill3Id = -1
         ultId = -1
         joyOrigin = Offset.Zero
+        lastSeen.clear()
+    }
+
+    /** 返回超过 timeoutMs 未见任何事件的手指并移出登记 */
+    fun staleIds(nowMs: Long, timeoutMs: Long = 30_000L): List<Int> {
+        val stale = ArrayList<Int>()
+        val it = lastSeen.entries.iterator()
+        while (it.hasNext()) {
+            val (id, t) = it.next()
+            if (nowMs - t > timeoutMs) {
+                it.remove()
+                stale.add(id)
+            }
+        }
+        return stale
     }
 }
 
@@ -211,7 +234,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         )
     }
     // E2E/调试：屏幕切换可观测
-    LaunchedEffect(screen) { android.util.Log.d("JellyScreen", screen.name) }
+    LaunchedEffect(screen) { if (BuildConfig.DEBUG) android.util.Log.d("JellyScreen", screen.name) }
     // 标题屏展示存档中已装备的武器/防具（只读快照，不影响本局 meta）
     val titleRunMeta = remember { RunMeta() }
     var titleGearReady by remember { mutableStateOf(false) }
@@ -249,6 +272,8 @@ fun PlayScreen(modifier: Modifier = Modifier) {
     var wheelY by remember { mutableFloatStateOf(0f) }
     var wheelSlotSel by remember { mutableIntStateOf(0) }
     val arenaRawTouch = remember { ArenaRawTouchState() }
+    // 暂停菜单“放弃本局”二次确认：首次点击时间戳，3 秒内再点才执行
+    var pendingAbandonT by remember { mutableStateOf(0L) }
     // 性能打点：区分 sim.update（逻辑）与 drawArena（绘制录制）耗时
     var perfDrawMs by remember { mutableFloatStateOf(0f) }
     var perfDrawN by remember { mutableIntStateOf(0) }
@@ -270,6 +295,37 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         s3Held = false
         s4Held = false
         wheelActive = false
+    }
+
+    fun releaseArenaPointer(pointerId: Int) {
+        when (pointerId) {
+            arenaRawTouch.joyId -> {
+                arenaRawTouch.joyId = -1
+                stickX = 0f
+                stickY = 0f
+                joyActive = false
+            }
+            arenaRawTouch.basicId -> {
+                arenaRawTouch.basicId = -1
+                basicHeld = false
+            }
+            arenaRawTouch.skill1Id -> {
+                arenaRawTouch.skill1Id = -1
+                s1Held = false
+            }
+            arenaRawTouch.skill2Id -> {
+                arenaRawTouch.skill2Id = -1
+                s2Held = false
+            }
+            arenaRawTouch.skill3Id -> {
+                arenaRawTouch.skill3Id = -1
+                s3Held = false
+            }
+            arenaRawTouch.ultId -> {
+                arenaRawTouch.ultId = -1
+                s4Held = false
+            }
+        }
     }
 
     LaunchedEffect(screen, arenaKey) {
@@ -368,7 +424,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         if (perfLogT >= 1f) {
                             val avg = perfFrameAcc / perfFrameN
                             val dAvg = if (perfDrawN > 0) perfDrawMs / perfDrawN else 0f
-                            android.util.Log.d(
+                            if (BuildConfig.DEBUG) android.util.Log.d(
                                 "JellyPerf",
                                 "frame avg=${"%.1f".format(avg)}ms max=${"%.1f".format(perfFrameMax)}ms draw=${"%.1f".format(dAvg)}ms (n=${perfFrameN}/${perfDrawN})"
                             )
@@ -376,6 +432,9 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                             perfDrawMs = 0f; perfDrawN = 0; perfLogT = 0f
                         }
                     }
+                    // 幽灵触点兜底：所有手指 UP 全部丢失（此后无任何事件）时按 60s 超时强制释放；
+                    // 常规 30s 事件驱动回收见 handleArenaRawTouch
+                    arenaRawTouch.staleIds(SystemClock.uptimeMillis(), 60_000L).forEach { releaseArenaPointer(it) }
                     if (!meta.paused) {
                         // 战斗中：正常推演；结算演出窗口（endT>0）继续 tick，让粒子/飘字活着
                         val killsBefore = sim.enemies.count { it.dead }
@@ -492,7 +551,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     uiPerfAcc += dt
                     uiPerfN++
                     if (uiPerfAcc >= 1f) {
-                        android.util.Log.d("JellyPerf", "ui screen=$screen avg=${"%.0f".format(uiPerfAcc / uiPerfN * 1000f)}ms n=$uiPerfN")
+                        if (BuildConfig.DEBUG) android.util.Log.d("JellyPerf", "ui screen=$screen avg=${"%.0f".format(uiPerfAcc / uiPerfN * 1000f)}ms n=$uiPerfN")
                         uiPerfAcc = 0f; uiPerfN = 0
                     }
                 }
@@ -508,6 +567,8 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         val u = min(w, h)
         val controls = arenaControlLayout(w, h)
         val maxJoy = u * 0.13f
+        // 事件驱动回收：30s 内无事件的手指视为 UP 丢失，强制释放（同旧 Compose 输入版语义）
+        arenaRawTouch.staleIds(SystemClock.uptimeMillis()).forEach { releaseArenaPointer(it) }
 
         fun inCircle(p: Offset, cx: Float, cy: Float, radius: Float): Boolean {
             val dx = p.x - cx
@@ -527,7 +588,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         }
 
         fun press(pointerId: Int, p: Offset) {
-            android.util.Log.d(
+            if (BuildConfig.DEBUG) android.util.Log.d(
                 "JellyInterop",
                 "DOWN id=$pointerId pos=(${p.x.toInt()},${p.y.toInt()}) joy=${arenaRawTouch.joyId >= 0}"
             )
@@ -537,9 +598,15 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 return
             }
             if (meta.paused) {
+                // 命中区与暂停菜单绘制矩形（x 0.20w~0.80w）对齐，误触菜单外区域不再触发
+                val menuX = p.x in w * 0.20f..w * 0.80f
                 when {
-                    p.y in h * 0.42f..h * 0.52f -> meta.paused = false
-                    p.y in h * 0.54f..h * 0.64f -> {
+                    menuX && p.y in h * 0.42f..h * 0.52f -> {
+                        pendingAbandonT = 0L
+                        meta.paused = false
+                    }
+                    menuX && p.y in h * 0.54f..h * 0.64f -> {
+                        pendingAbandonT = 0L
                         meta.paused = false
                         meta.curHp = arena?.player?.hp ?: meta.curHp
                         meta.curMp = arena?.mp ?: meta.curMp
@@ -547,15 +614,22 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         screen = Screen.TITLE
                         arena = null
                     }
-                    p.y in h * 0.66f..h * 0.76f -> {
-                        meta.paused = false
-                        meta.fillResult(false)
-                        progress.recordRunEnd(
-                            false, meta.stageIndex, meta.level,
-                            meta.goldEarnedThisRun, meta.kills
-                        )
-                        screen = Screen.RESULT
-                        arena = null
+                    menuX && p.y in h * 0.66f..h * 0.76f -> {
+                        // 放弃为破坏性操作：3 秒内二次点击才执行，按钮同步变红提示
+                        val now = SystemClock.uptimeMillis()
+                        if (now - pendingAbandonT in 1..3_000L) {
+                            pendingAbandonT = 0L
+                            meta.paused = false
+                            meta.fillResult(false)
+                            progress.recordRunEnd(
+                                false, meta.stageIndex, meta.level,
+                                meta.goldEarnedThisRun, meta.kills
+                            )
+                            screen = Screen.RESULT
+                            arena = null
+                        } else {
+                            pendingAbandonT = now
+                        }
                     }
                 }
                 return
@@ -563,7 +637,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
 
             val sim = arena
             when {
-                inCircle(p, controls.ultX, controls.ultY, u * 0.088f * 1.35f) -> {
+                inCircle(p, controls.ultX, controls.ultY, u * 0.088f * ARENA_HIT_SLOP) -> {
                     arenaRawTouch.ultId = pointerId
                     s4Held = true
                     if (sim != null && !sim.skillUnlocked(4)) {
@@ -572,7 +646,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         sim?.requestTap(4)
                     }
                 }
-                inCircle(p, controls.potionX, controls.potionY, u * 0.07f * 1.20f) -> {
+                inCircle(p, controls.potionX, controls.potionY, u * 0.07f * ARENA_HIT_SLOP) -> {
                     if (sim != null && meta.potions > 0 && sim.tryUsePotion()) {
                         meta.potions--
                         meta.curHp = sim.player.hp
@@ -583,13 +657,13 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         meta.toastT = 1.2f
                     }
                 }
-                inCircle(p, controls.attackX, controls.attackY, u * 0.10f * 1.45f) -> {
+                inCircle(p, controls.attackX, controls.attackY, u * 0.10f * ARENA_HIT_SLOP_ATTACK) -> {
                     arenaRawTouch.basicId = pointerId
                     basicHeld = true
                     sim?.requestBasicTap()
-                    android.util.Log.d("JellyInterop", "=> ATTACK id=$pointerId")
+                    if (BuildConfig.DEBUG) android.util.Log.d("JellyInterop", "=> ATTACK id=$pointerId")
                 }
-                inCircle(p, controls.skill1X, controls.skill1Y, u * 0.072f * 1.35f) -> {
+                inCircle(p, controls.skill1X, controls.skill1Y, u * 0.072f * ARENA_HIT_SLOP) -> {
                     arenaRawTouch.skill1Id = pointerId
                     s1Held = true
                     if (sim != null && !sim.skillUnlocked(1)) {
@@ -598,7 +672,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         sim?.requestTap(1)
                     }
                 }
-                inCircle(p, controls.skill2X, controls.skill2Y, u * 0.072f * 1.35f) -> {
+                inCircle(p, controls.skill2X, controls.skill2Y, u * 0.072f * ARENA_HIT_SLOP) -> {
                     arenaRawTouch.skill2Id = pointerId
                     s2Held = true
                     if (sim != null && !sim.skillUnlocked(2)) {
@@ -607,7 +681,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         sim?.requestTap(2)
                     }
                 }
-                inCircle(p, controls.skill3X, controls.skill3Y, u * 0.072f * 1.35f) -> {
+                inCircle(p, controls.skill3X, controls.skill3Y, u * 0.072f * ARENA_HIT_SLOP) -> {
                     arenaRawTouch.skill3Id = pointerId
                     s3Held = true
                     if (sim != null && !sim.skillUnlocked(3)) {
@@ -623,38 +697,14 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     joyOy = p.y
                     joyActive = true
                     updateJoystick(p)
-                    android.util.Log.d("JellyInterop", "=> JOYSTICK id=$pointerId")
+                    if (BuildConfig.DEBUG) android.util.Log.d("JellyInterop", "=> JOYSTICK id=$pointerId")
                 }
-            }
-        }
-
-        fun release(pointerId: Int) {
-            when (pointerId) {
-                arenaRawTouch.joyId -> {
-                    arenaRawTouch.joyId = -1
-                    stickX = 0f
-                    stickY = 0f
-                    joyActive = false
-                }
-                arenaRawTouch.basicId -> {
-                    arenaRawTouch.basicId = -1
-                    basicHeld = false
-                }
-                arenaRawTouch.skill1Id -> {
-                    arenaRawTouch.skill1Id = -1
-                    s1Held = false
-                }
-                arenaRawTouch.skill2Id -> {
-                    arenaRawTouch.skill2Id = -1
-                    s2Held = false
-                }
-                arenaRawTouch.skill3Id -> {
-                    arenaRawTouch.skill3Id = -1
-                    s3Held = false
-                }
-                arenaRawTouch.ultId -> {
-                    arenaRawTouch.ultId = -1
-                    s4Held = false
+                // 右侧空白兜底：未推摇杆时点按空白=普攻；推杆移动中不触发，保持按键语义
+                arenaRawTouch.joyId < 0 -> {
+                    arenaRawTouch.basicId = pointerId
+                    basicHeld = true
+                    sim?.requestBasicTap()
+                    if (BuildConfig.DEBUG) android.util.Log.d("JellyInterop", "=> ATK(fallback) id=$pointerId")
                 }
             }
         }
@@ -668,10 +718,18 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 val joyIndex = event.findPointerIndex(arenaRawTouch.joyId)
                 if (joyIndex >= 0) updateJoystick(Offset(event.getX(joyIndex), event.getY(joyIndex)))
             }
-            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
-                release(event.getPointerId(event.actionIndex))
-            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP ->
+                releaseArenaPointer(event.getPointerId(event.actionIndex))
             MotionEvent.ACTION_CANCEL -> releaseArenaTouches()
+        }
+        // 刷新所有在按手指的活跃时刻：静止手指靠其他手指的事件批次一并刷新
+        val lifted = when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> event.getPointerId(event.actionIndex)
+            else -> -1
+        }
+        for (i in 0 until event.pointerCount) {
+            val pid = event.getPointerId(i)
+            if (pid != lifted) arenaRawTouch.lastSeen[pid] = SystemClock.uptimeMillis()
         }
         return true
     }
@@ -685,7 +743,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             // PointerInputChange 会把第二指向右平移 200~300px；Interop 坐标与绘制一致。
             .pointerInteropFilter { event -> handleArenaRawTouch(event) }
             // rebind when size ready — critical so hitboxes match real pixels
-            .pointerInput(screen, arenaKey, size.width, size.height, createName, createHeroIdx, charTick, confirmKind, confirmPayload, gearScroll, language) {
+            .pointerInput(screen, arenaKey, size.width, size.height, createName, createHeroIdx, charTick, confirmKind, confirmPayload, language) {
                 if (size.width <= 0 || size.height <= 0) return@pointerInput
                 if (screen == Screen.LOGIN) return@pointerInput
                 if (screen == Screen.ARENA) return@pointerInput
@@ -749,357 +807,6 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     }
                     return@pointerInput
                 }
-                if (screen == Screen.ARENA) {
-                    awaitPointerEventScope {
-                        val w = size.width.toFloat()
-                        val h = size.height.toFloat()
-                        android.util.Log.d("JellyInput", "ARENA input ready w=${w.toInt()} h=${h.toInt()}")
-                        val u = min(w, h) // landscape-safe control scale
-                        val controls = arenaControlLayout(w, h)
-                        // RIGHT controls (thumb cluster)
-                        // 5 skill cluster
-                        val atkCx = controls.attackX
-                        val atkCy = controls.attackY
-                        val atkR = u * 0.10f
-                        val s1Cx = controls.skill1X
-                        val s1Cy = controls.skill1Y
-                        val s1R = u * 0.072f
-                        val s2Cx = controls.skill2X
-                        val s2Cy = controls.skill2Y
-                        val s2R = u * 0.072f
-                        val s3Cx = controls.skill3X
-                        val s3Cy = controls.skill3Y
-                        val s3R = u * 0.072f
-                        val ultCx = controls.ultX
-                        val ultCy = controls.ultY
-                        val ultR = u * 0.088f
-                        val potCx = controls.potionX
-                        val potCy = controls.potionY
-                        val potR = u * 0.07f
-                        val maxJoy = u * 0.13f
-                        var joyId: PointerId? = null
-                        var joyOrigin = Offset(w * 0.14f, h * 0.72f)
-                        var basicId: PointerId? = null
-                        var s1Id: PointerId? = null
-                        var s2Id: PointerId? = null
-                        var s3Id: PointerId? = null
-                        var s4Id: PointerId? = null
-                        // 移动中技能盘：点按=普攻（不弹盘）；按住≥250ms 才弹盘滑动选技能。
-                        // 固件篡改绝对坐标，但相对滑动增量不受影响 → 滑动选槽可靠。
-                        var wheelPtr: PointerId? = null
-                        var wheelAnchor = Offset.Zero
-                        var pendingWheel: PointerId? = null
-                        var pendingWheelT0 = 0L
-                        var pendingWheelAnchor = Offset.Zero
-                        fun activateWheel(now: Long) {
-                            val pid = pendingWheel ?: return
-                            if (now - pendingWheelT0 < 250L) return
-                            wheelPtr = pid
-                            wheelAnchor = pendingWheelAnchor
-                            wheelSlotSel = 0
-                            wheelActive = true
-                            wheelX = pendingWheelAnchor.x
-                            wheelY = pendingWheelAnchor.y
-                            if (basicId == pid) { basicId = null; basicHeld = false }
-                            pendingWheel = null
-                            android.util.Log.d("JellyInput", "=> WHEEL(hold) pos=(${wheelX.toInt()},${wheelY.toInt()})")
-                        }
-                        // 已见手指登记：一次性分配语义。
-                        // 修复 pointerInput 重启窗口内按下的手指丢 DOWN 事件 —— 首个 MOVE 也视为按下；
-                        // 但每根手指只分配一次（滑动跨区不重新判定），保持原始操作语义。
-                        val knownIds = HashSet<PointerId>()
-                        // 幽灵触点回收：手指 UP 事件丢失（系统手势截胡/驱动偶发）时，
-                        // 该指针会永远按住摇杆或技能，其余触控全部失灵。超时强制释放。
-                        val lastSeen = HashMap<PointerId, Long>()
-                        fun reapGhostPointers(nowMs: Long) {
-                            val it = lastSeen.entries.iterator()
-                            while (it.hasNext()) {
-                                val (id, t) = it.next()
-                                // 30s：静止长按（推摇杆跑/按住普攻）不产生 MOVE，短超时会误杀；
-                                // 只兜系统级 UP 丢失（手势截胡）造成的分钟级卡死
-                                if (nowMs - t > 30_000L) {
-                                    android.util.Log.w("JellyInput", "REAP ghost ptr=${id.value} idle=${nowMs - t}ms")
-                                    it.remove()
-                                    knownIds.remove(id)
-                                    when (id) {
-                                        joyId -> {
-                                            joyId = null
-                                            stickX = 0f; stickY = 0f
-                                            joyActive = false
-                                        }
-                                        basicId -> { basicId = null; basicHeld = false }
-                                        s1Id -> { s1Id = null; s1Held = false }
-                                        s2Id -> { s2Id = null; s2Held = false }
-                                        s3Id -> { s3Id = null; s3Held = false }
-                                        s4Id -> { s4Id = null; s4Held = false }
-                                    }
-                                }
-                            }
-                        }
-                        fun inC(p: Offset, cx: Float, cy: Float, r: Float): Boolean {
-                            val dx = p.x - cx
-                            val dy = p.y - cy
-                            return dx * dx + dy * dy <= r * r
-                        }
-                        fun applyJoy(p: Offset) {
-                            val dx = p.x - joyOrigin.x
-                            val dy = p.y - joyOrigin.y
-                            val len = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
-                            val cl = min(len, maxJoy)
-                            val nx = (dx / len) * (cl / maxJoy)
-                            val ny = (dy / len) * (cl / maxJoy)
-                            stickX = nx
-                            stickY = ny
-                            joyKnobX = joyOrigin.x + (dx / len) * cl
-                            joyKnobY = joyOrigin.y + (dy / len) * cl
-                        }
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            reapGhostPointers(System.currentTimeMillis())
-                            for (ch in event.changes) {
-                                val p = ch.position
-                                lastSeen[ch.id] = System.currentTimeMillis()
-                                // 按下判定：正常 DOWN，或未登记手指的首个事件（自愈重启窗口丢的 DOWN）
-                                val isDown = ch.changedToDown() || (ch.pressed && ch.id !in knownIds)
-                                if (isDown) {
-                                    knownIds.add(ch.id)
-                                    android.util.Log.d(
-                                        "JellyInput",
-                                        "DOWN ptr=${ch.id.value} raw=${ch.changedToDown()} pos=(${p.x.toInt()},${p.y.toInt()})"
-                                    )
-                                    // pause hitbox always
-                                    if (p.y < h * 0.12f && p.x < w * 0.18f) {
-                                        meta.paused = !meta.paused
-                                        if (meta.paused) {
-                                            basicHeld = false; s1Held = false; s2Held = false; s3Held = false; s4Held = false
-                                            stickX = 0f; stickY = 0f; joyActive = false
-                                        }
-                                        ch.consume()
-                                        continue
-                                    }
-                                    if (meta.paused) {
-                                        if (p.y in h * 0.42f..h * 0.52f) meta.paused = false
-                                        // 保存回标题 → 可继续冒险
-                                        if (p.y in h * 0.54f..h * 0.64f) {
-                                            meta.paused = false
-                                            meta.curHp = arena?.player?.hp ?: meta.curHp
-                                            meta.curMp = arena?.mp ?: meta.curMp
-                                            progress.saveActiveRun(meta)
-                                            screen = Screen.TITLE
-                                            arena = null
-                                        }
-                                        // 放弃本局
-                                        if (p.y in h * 0.66f..h * 0.76f) {
-                                            meta.paused = false
-                                            meta.fillResult(false)
-                                            progress.recordRunEnd(
-                                                false, meta.stageIndex, meta.level,
-                                                meta.goldEarnedThisRun, meta.kills
-                                            )
-                                            screen = Screen.RESULT
-                                            arena = null
-                                        }
-                                        ch.consume()
-                                        continue
-                                    }
-                                    // 实体按钮始终优先精确命中；否则移动时点右侧空白区域才启用快捷技能盘。
-                                    // 不能让“移动中右半屏”分支抢在按钮前，否则攻击键长按会在 250ms 后
-                                    // 被技能盘接管，未解锁技能按钮也会被错误当成普攻。
-                                    val joyHeld = joyId != null
-                                    when {
-                                        // 必杀优先于药水：两者热区相邻，误触药水会浪费一瓶药
-                                        inC(p, ultCx, ultCy, ultR * 1.45f) -> {
-                                            s4Id = ch.id; s4Held = true; ch.consume()
-                                            android.util.Log.d("JellyInput", "=> ULT ptr=${ch.id.value}")
-                                            val sim = arena
-                                            if (sim != null && !sim.skillUnlocked(4)) sim.showHint("Lv${sim.skillUnlockLevel(4)} 解锁必杀")
-                                        }
-                                        inC(p, potCx, potCy, potR) -> {
-                                            val sim = arena
-                                            if (sim != null && meta.potions > 0) {
-                                                if (sim.tryUsePotion()) {
-                                                    meta.potions--
-                                                    meta.curHp = sim.player.hp
-                                                    meta.toast = "用药 +${(sim.player.maxHp * 0.4f).toInt()} HP  剩${meta.potions}瓶"
-                                                    meta.toastT = 1.5f
-                                                } else {
-                                                    meta.toast = if (meta.potions <= 0) "没有药水" else "生命已满"
-                                                    meta.toastT = 1.1f
-                                                }
-                                            } else {
-                                                meta.toast = "没有药水（地图商店可买）"
-                                                meta.toastT = 1.3f
-                                            }
-                                            ch.consume()
-                                        }
-                                        inC(p, atkCx, atkCy, atkR * 1.45f) -> {
-                                            basicId = ch.id; basicHeld = true; ch.consume()
-                                            android.util.Log.d("JellyInput", "=> ATK ptr=${ch.id.value}")
-                                            arena?.requestBasicTap()
-                                        }
-                                        inC(p, s1Cx, s1Cy, s1R * 1.45f) -> {
-                                            s1Id = ch.id; s1Held = true; ch.consume()
-                                            android.util.Log.d("JellyInput", "=> S1 ptr=${ch.id.value}")
-                                            val sim = arena
-                                            if (sim != null) {
-                                                if (!sim.skillUnlocked(1)) sim.showHint("Lv${sim.skillUnlockLevel(1)} 解锁此技能")
-                                                else sim.requestTap(1)
-                                            }
-                                        }
-                                        inC(p, s2Cx, s2Cy, s2R * 1.45f) -> {
-                                            s2Id = ch.id; s2Held = true; ch.consume()
-                                            android.util.Log.d("JellyInput", "=> S2 ptr=${ch.id.value}")
-                                            val sim = arena
-                                            if (sim != null) {
-                                                if (!sim.skillUnlocked(2)) sim.showHint("Lv${sim.skillUnlockLevel(2)} 解锁此技能")
-                                                else sim.requestTap(2)
-                                            }
-                                        }
-                                        inC(p, s3Cx, s3Cy, s3R * 1.45f) -> {
-                                            s3Id = ch.id; s3Held = true; ch.consume()
-                                            android.util.Log.d("JellyInput", "=> S3 ptr=${ch.id.value}")
-                                            val sim = arena
-                                            if (sim != null) {
-                                                if (!sim.skillUnlocked(3)) sim.showHint("Lv${sim.skillUnlockLevel(3)} 解锁此技能")
-                                                else sim.requestTap(3)
-                                            }
-                                        }
-                                        // SH-M10 双指会把攻击指向右下偏移；实体攻击键已内移，这个宽松区域
-                                        // 接住漂移后的攻击触点。技能键均在上方，不会再被此处误判成普攻。
-                                        joyHeld && p.x > w - u * 0.10f && p.y > atkCy -> {
-                                            basicId = ch.id; basicHeld = true; ch.consume()
-                                            arena?.requestBasicTap()
-                                            android.util.Log.d("JellyInput", "=> ATK(joy-corrected) ptr=${ch.id.value} pos=(${p.x.toInt()},${p.y.toInt()})")
-                                        }
-                                        // 其余右侧空白仅用于长按技能盘；快速点按不再冒充普攻。
-                                        joyHeld && p.x > w * 0.52f -> {
-                                            pendingWheel = ch.id
-                                            pendingWheelT0 = SystemClock.uptimeMillis()
-                                            pendingWheelAnchor = p
-                                            ch.consume()
-                                            android.util.Log.d("JellyInput", "=> WHEEL(pending) ptr=${ch.id.value} pos=(${p.x.toInt()},${p.y.toInt()})")
-                                        }
-                                        // LEFT ~48%: floating joystick
-                                        p.x < w * 0.48f -> {
-                                            joyId = ch.id
-                                            joyOrigin = p
-                                            joyOx = p.x
-                                            joyOy = p.y
-                                            joyActive = true
-                                            applyJoy(p)
-                                            ch.consume()
-                                            android.util.Log.d("JellyInput", "=> JOY ptr=${ch.id.value}")
-                                        }
-                                        // right empty area also attacks
-                                        else -> {
-                                            basicId = ch.id; basicHeld = true; ch.consume()
-                                            android.util.Log.d("JellyInput", "=> ATK(fallback) ptr=${ch.id.value}")
-                                            arena?.requestBasicTap()
-                                        }
-                                    }
-                                } else if (ch.pressed) {
-                                    // 按住≥250ms → 技能盘弹出（任意事件驱动计时，静止长按也触发）
-                                    if (pendingWheel != null) activateWheel(SystemClock.uptimeMillis())
-                                    // 技能盘跟踪：用相对增量选槽（绝对坐标被固件平移也不影响）
-                                    if (ch.id == wheelPtr) {
-                                        val sel = pickGhostSlot(p.x - wheelAnchor.x, p.y - wheelAnchor.y, w, h)
-                                        if (sel != wheelSlotSel) wheelSlotSel = sel
-                                        ch.consume()
-                                    }
-                                    when (ch.id) {
-                                        joyId -> {
-                                            applyJoy(p)
-                                            ch.consume()
-                                        }
-                                        basicId -> {
-                                            basicHeld = true; ch.consume()
-                                        }
-                                        s1Id -> {
-                                            s1Held = true; ch.consume()
-                                        }
-                                        s2Id -> {
-                                            s2Held = true; ch.consume()
-                                        }
-                                        s3Id -> {
-                                            s3Held = true; ch.consume()
-                                        }
-                                        s4Id -> {
-                                            s4Held = true; ch.consume()
-                                        }
-                                    }
-                                } else {
-                                    knownIds.remove(ch.id)
-                                    lastSeen.remove(ch.id)
-                                    android.util.Log.d("JellyInput", "UP ptr=${ch.id.value}")
-                                    // 技能盘释放：选中槽 1~4 → 技能/必杀；0（中心）→ 普攻
-                                    if (ch.id == wheelPtr) {
-                                        wheelPtr = null
-                                        wheelActive = false
-                                        val sim = arena
-                                        val sel = wheelSlotSel
-                                        when {
-                                            sim == null -> Unit
-                                            sel in 1..3 -> {
-                                                if (!sim.skillUnlocked(sel)) sim.showHint("Lv${sim.skillUnlockLevel(sel)} 解锁此技能")
-                                                else sim.requestTap(sel)
-                                            }
-                                            sel == 4 -> {
-                                                if (!sim.skillUnlocked(4)) sim.showHint("Lv${sim.skillUnlockLevel(4)} 解锁必杀")
-                                                else sim.requestTap(4)
-                                            }
-                                            else -> sim.requestBasicTap()
-                                        }
-                                        android.util.Log.d("JellyInput", "=> WHEEL(release $sel) ptr=${ch.id.value}")
-                                        ch.consume()
-                                    }
-                                    // 右侧空白快速点按不执行技能，避免未解锁按钮因坐标漂移变成普攻。
-                                    if (ch.id == pendingWheel) {
-                                        pendingWheel = null
-                                        android.util.Log.d("JellyInput", "=> WHEEL(cancel tap) ptr=${ch.id.value}")
-                                    }
-                                    if (ch.id == joyId) {
-                                        joyId = null
-                                        stickX = 0f
-                                        stickY = 0f
-                                        joyActive = false
-                                        // 摇杆松开：技能盘一并收起（手指仍按着盘则按当前选中释放）
-                                        pendingWheel = null
-                                        if (wheelPtr != null) {
-                                            val sim = arena
-                                            val sel = wheelSlotSel
-                                            if (sim != null) {
-                                                when {
-                                                    sel in 1..3 && sim.skillUnlocked(sel) -> sim.requestTap(sel)
-                                                    sel == 4 && sim.skillUnlocked(4) -> sim.requestTap(4)
-                                                    else -> sim.requestBasicTap()
-                                                }
-                                            }
-                                            wheelPtr = null
-                                            wheelActive = false
-                                            android.util.Log.d("JellyInput", "=> WHEEL(joy-up release $sel)")
-                                        }
-                                        ch.consume()
-                                    }
-                                    if (ch.id == basicId) {
-                                        basicId = null; basicHeld = false; ch.consume()
-                                    }
-                                    if (ch.id == s1Id) {
-                                        s1Id = null; s1Held = false; ch.consume()
-                                    }
-                                    if (ch.id == s2Id) {
-                                        s2Id = null; s2Held = false; ch.consume()
-                                    }
-                                    if (ch.id == s3Id) {
-                                        s3Id = null; s3Held = false; ch.consume()
-                                    }
-                                    if (ch.id == s4Id) {
-                                        s4Id = null; s4Held = false; ch.consume()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var up = down.position
@@ -1154,7 +861,6 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                             gearScroll = gearScroll
                         )
                     }
-                }
             }
     ) {
         @Suppress("UNUSED_EXPRESSION")
@@ -1194,7 +900,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         sim, meta, tm, w, h, stickX, stickY,
                         joyActive, joyOx, joyOy, joyKnobX, joyKnobY,
                         basicHeld, s1Held, s2Held, s3Held, s4Held,
-                        wheelActive, wheelX, wheelY, wheelSlotSel
+                        wheelActive, wheelX, wheelY, wheelSlotSel, pendingAbandonT
                     )
                     perfDrawMs += (System.nanoTime() - t0) / 1e6f
                     perfDrawN++
@@ -3556,7 +3262,8 @@ private fun DrawScope.drawArena(
     wheelActive: Boolean = false,
     wheelX: Float = 0f,
     wheelY: Float = 0f,
-    wheelSlotSel: Int = 0
+    wheelSlotSel: Int = 0,
+    abandonArmedT: Long = 0L
 ) {
     val viewH = h // landscape: use full height for combat
     // camera follow：弱化 zoom/shake，避免攻击时整屏一跳一跳
@@ -4267,8 +3974,12 @@ private fun DrawScope.drawArena(
         title(tm, "继续战斗", w * 0.5f, h * 0.44f, Color.White, 17.sp)
         drawRoundRect(Color(0xFF2563EB), Offset(w * 0.2f, h * 0.54f), Size(w * 0.6f, h * 0.09f), CornerRadius(16f))
         title(tm, "保存并回标题", w * 0.5f, h * 0.56f, Color.White, 17.sp)
-        drawRoundRect(Color(0xFFEF4444), Offset(w * 0.2f, h * 0.66f), Size(w * 0.6f, h * 0.09f), CornerRadius(16f))
-        title(tm, "放弃本局", w * 0.5f, h * 0.68f, Color.White, 17.sp)
+        val abandonArmed = SystemClock.uptimeMillis() - abandonArmedT in 1..3_000L
+        drawRoundRect(
+            if (abandonArmed) Color(0xFF7F1D1D) else Color(0xFFEF4444),
+            Offset(w * 0.2f, h * 0.66f), Size(w * 0.6f, h * 0.09f), CornerRadius(16f)
+        )
+        title(tm, if (abandonArmed) "放弃本局？" else "放弃本局", w * 0.5f, h * 0.68f, Color.White, 17.sp)
     }
     if (sim.finished) {
         title(tm, if (sim.won) "胜利！" else "失败", w * 0.5f, viewH * 0.38f, if (sim.won) Color(0xFF4ADE80) else Color(0xFFEF4444), 34.sp)
