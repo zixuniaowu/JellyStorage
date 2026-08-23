@@ -64,7 +64,9 @@ object RingCatalog {
     fun byId(id: String) = all.find { it.id == id }
     fun usableBy(h: HeroClass) = all.filter { it.canEquip(h) }
     fun shopOffers(h: HeroClass, n: Int = 1) = usableBy(h).filter { it.cost > 0 }.shuffled().take(n)
-    fun randomDrop(h: HeroClass) = usableBy(h).filter { it.cost > 0 }.randomOrNull()
+    fun randomDrop(h: HeroClass, maxRarity: Int = 2, maxTier: Int = 5) = usableBy(h).filter {
+        it.cost > 0 && it.rarity <= maxRarity.coerceIn(0, 2) && it.tier <= maxTier.coerceIn(1, 5)
+    }.randomOrNull()
 }
 
 object BootsCatalog {
@@ -82,7 +84,9 @@ object BootsCatalog {
     fun byId(id: String) = all.find { it.id == id }
     fun usableBy(h: HeroClass) = all.filter { it.canEquip(h) }
     fun shopOffers(h: HeroClass, n: Int = 1) = usableBy(h).filter { it.cost > 0 }.shuffled().take(n)
-    fun randomDrop(h: HeroClass) = usableBy(h).filter { it.cost > 0 }.randomOrNull()
+    fun randomDrop(h: HeroClass, maxRarity: Int = 2, maxTier: Int = 5) = usableBy(h).filter {
+        it.cost > 0 && it.rarity <= maxRarity.coerceIn(0, 2) && it.tier <= maxTier.coerceIn(1, 5)
+    }.randomOrNull()
     fun starter() = byId("b_cloth")!!
 }
 

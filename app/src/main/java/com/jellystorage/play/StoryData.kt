@@ -1,7 +1,7 @@
 package com.jellystorage.play
 
 /**
- * Narrative layer for 果冻勇者 — chapters, node flavor, events, boss lines.
+ * 人体内免疫战争的叙事层：器官章节、感染节点、事件和首领对白。
  */
 data class StoryBeat(
     val speaker: String,
@@ -21,160 +21,160 @@ data class ChapterLore(
 
 object StoryBook {
     val worldPremise = listOf(
-        StoryBeat("旁白", "据说世界的核心是一颗会呼吸的果冻。"),
-        StoryBeat("旁白", "它碎裂之后，大地长出会走动的软泥，矿脉也会低声哭泣。"),
-        StoryBeat("旁白", "你是被「保存者盟会」派来的新人——任务很简单：把溢出的软体压回去。"),
-        StoryBeat("旁白", "但没人告诉你，保存者本身，也在慢慢融化。")
+        StoryBeat("旁白", "这里不是星球，而是一具正在发热的人体。"),
+        StoryBeat("旁白", "一道微小创口让未知病原体越过皮肤，开始沿血流扩散。"),
+        StoryBeat("免疫中枢", "白细胞战士，依次净化皮肤、肺、胃肠、肝脏与心脏。"),
+        StoryBeat("免疫中枢", "记住它们。下一轮感染时，病毒也会记住你。", StoryMood.DARK)
     )
 
     fun heroGreeting(hero: HeroClass): List<StoryBeat> = when (hero) {
         HeroClass.WARRIOR -> listOf(
-            StoryBeat("你", "剑还在。腿也在。那就够了。", StoryMood.TENSE),
-            StoryBeat("老兵残响", "别笑，小子。草原上的史莱姆会把盔甲当点心。", StoryMood.FUNNY),
-            StoryBeat("你", "……那我先把点心切了。", StoryMood.WARM)
+            StoryBeat("你", "细胞膜完整，吞噬刃就绪。", StoryMood.TENSE),
+            StoryBeat("中性粒细胞", "别被它们柔软的外形骗了，菌膜比盔甲更难破。", StoryMood.NORMAL),
+            StoryBeat("你", "那就连菌膜一起切开。", StoryMood.WARM)
         )
         HeroClass.MAGE -> listOf(
-            StoryBeat("你", "火焰记得路线。寒冰记得边界。", StoryMood.NORMAL),
-            StoryBeat("学徒日记", "导师说：法术不是力量，是「整理世界的语法」。", StoryMood.WARM),
-            StoryBeat("你", "那我去给这片草地改个错别字。", StoryMood.FUNNY)
+            StoryBeat("你", "炎症负责标记，低温负责封锁。", StoryMood.NORMAL),
+            StoryBeat("B细胞", "抗体不是魔法，是精准识别后的答案。", StoryMood.WARM),
+            StoryBeat("你", "那就给每个病原体一份答案。", StoryMood.FUNNY)
         )
         HeroClass.TAOIST -> listOf(
-            StoryBeat("你", "符纸新裁，香灰未冷。", StoryMood.WARM),
-            StoryBeat("云游老人", "道不是躲开，是把伤痛放回它该在的位置。", StoryMood.NORMAL),
-            StoryBeat("你", "那我就把溢出的果冻，请回坛子里。", StoryMood.WARM)
+            StoryBeat("你", "调节因子已装填，修复信号稳定。", StoryMood.WARM),
+            StoryBeat("调节性T细胞", "免疫不是毁灭一切，而是让反应停在正确的位置。", StoryMood.NORMAL),
+            StoryBeat("你", "病原体清除，正常细胞留下。", StoryMood.WARM)
         )
     }
 
     val chapters: List<ChapterLore> = listOf(
         ChapterLore(
-            title = "第一章 · 果冻草原",
-            subtitle = "软泥初醒的原野",
+            title = "第一章 · 皮肤创口",
+            subtitle = "最初防线的裂口",
             intro = listOf(
-                StoryBeat("信使", "东边的草在发抖。不是风，是地底有东西在吞。", StoryMood.TENSE),
-                StoryBeat("盟会文书", "第一目标：清扫史莱姆窝，确认「果核裂纹」是否外溢。", StoryMood.NORMAL),
-                StoryBeat("旁白", "你踏进草地时，空气甜得发腻——像融化的糖浆。", StoryMood.DARK)
+                StoryBeat("血小板", "创口还没闭合，菌群正在穿过凝血网。", StoryMood.TENSE),
+                StoryBeat("免疫中枢", "第一目标：压制创口感染核心，完成表皮封闭。", StoryMood.NORMAL),
+                StoryBeat("旁白", "组织液泛着红光，每一次脉动都把敌人推得更深。", StoryMood.DARK)
             ),
             clear = listOf(
-                StoryBeat("你", "草原安静了。但甜味还在。", StoryMood.NORMAL),
-                StoryBeat("信使", "裂纹只是开口。真正的源头在矿道深处。", StoryMood.TENSE),
-                StoryBeat("旁白", "远方的雷声不像天气，更像某种巨大的东西在翻身。", StoryMood.DARK)
+                StoryBeat("你", "创口已经封住，但一部分病毒进入了血流。", StoryMood.NORMAL),
+                StoryBeat("免疫中枢", "追踪信号抵达肺部。不要让它们占据肺泡。", StoryMood.TENSE),
+                StoryBeat("旁白", "你跃入毛细血管，随血流冲向呼吸深处。", StoryMood.DARK)
             ),
-            worldNote = "这里曾是游牧民族的牧场。果核碎裂后，牛羊变成了会跳的胶团。"
+            worldNote = "皮肤负责阻挡大多数入侵者；一旦防线破损，凝血与先天免疫会同时启动。"
         ),
         ChapterLore(
-            title = "第二章 · 哭泣矿道",
-            subtitle = "会说话的石头",
+            title = "第二章 · 肺泡云海",
+            subtitle = "每一次呼吸都在交战",
             intro = listOf(
-                StoryBeat("矿工幽灵", "别碰墙上的绿光……那是它的眼睛。", StoryMood.DARK),
-                StoryBeat("盟会文书", "第二目标：抵达矿脉之心，压制「空罐回声」。", StoryMood.NORMAL),
-                StoryBeat("你", "回声再响，也要先过我这关。", StoryMood.TENSE)
+                StoryBeat("肺泡巨噬细胞", "飞沫病毒黏住了纤毛，氧气交换正在下降。", StoryMood.DARK),
+                StoryBeat("免疫中枢", "第二目标：清除肺部感染核心，恢复氧合。", StoryMood.NORMAL),
+                StoryBeat("你", "先让气道重新流动。", StoryMood.TENSE)
             ),
             clear = listOf(
-                StoryBeat("矿脉魔（残响）", "你们保存的是形状……不是生命……", StoryMood.DARK),
-                StoryBeat("你", "那我就两个都保住。", StoryMood.WARM),
-                StoryBeat("旁白", "矿道塌了一角。光从裂缝里漏进来，像世界第一次学会呼吸。", StoryMood.WARM)
+                StoryBeat("病毒母体（残响）", "你封住一个肺泡，还能封住每一次呼吸吗？", StoryMood.DARK),
+                StoryBeat("你", "不能。所以我会让身体记住你。", StoryMood.WARM),
+                StoryBeat("旁白", "肺泡重新舒张，氧气像晨光一样进入血液。", StoryMood.WARM)
             ),
-            worldNote = "矿工们曾用符文锁住果核碎片。锁坏了，人先消失，符还在墙上发烫。"
+            worldNote = "肺泡薄而脆弱。这里的气流、缺氧与飞沫会不断改变战场位置。"
         ),
         ChapterLore(
-            title = "第三章 · 空罐王城",
-            subtitle = "盖子掉光的城",
+            title = "第三章 · 胃肠菌林",
+            subtitle = "共生与感染的边界",
             intro = listOf(
-                StoryBeat("旁白", "城墙上的旗帜全是抹布。甜蜜在这里发了霉。", StoryMood.DARK),
-                StoryBeat("盟会文书", "最终目标：封住空罐君王，让世界重新学会盖盖子。", StoryMood.NORMAL),
-                StoryBeat("你", "罐子可以碎。人不可以。", StoryMood.TENSE)
+                StoryBeat("旁白", "这里本就住着亿万菌群，敌我边界比任何器官都模糊。", StoryMood.DARK),
+                StoryBeat("免疫中枢", "第三目标：保护共生菌，清除劫持肠壁的感染核心。", StoryMood.NORMAL),
+                StoryBeat("你", "能帮身体的留下，越界的清除。", StoryMood.TENSE)
             ),
             clear = listOf(
-                StoryBeat("空罐君王（残响）", "……合上了？真的合上了？", StoryMood.DARK),
-                StoryBeat("你", "合上了。今晚可以睡个整觉。", StoryMood.WARM),
-                StoryBeat("旁白", "风第一次没有糖味。草原、矿道、王城——都安静下来。", StoryMood.WARM)
+                StoryBeat("感染核心（残响）", "没有我们，你也无法消化这座森林。", StoryMood.DARK),
+                StoryBeat("你", "共生不是纵容入侵。", StoryMood.WARM),
+                StoryBeat("旁白", "绒毛重新舒展，营养与毒素一起流向肝门静脉。", StoryMood.WARM)
             ),
-            worldNote = "王城曾用巨大的罐阵储存果核之力。盖子飞走那天，王国也飞走了。"
+            worldNote = "胃酸会灼伤双方，肠道菌群则可能成为援军或屏障；选择路线比单纯击杀更重要。"
         ),
         ChapterLore(
-            title = "第四章 · 墨海秘境",
-            subtitle = "画中有画",
+            title = "第四章 · 肝脏净化区",
+            subtitle = "身体的解毒工厂",
             intro = listOf(
-                StoryBeat("旁白", "你踏进纸面。浪不是水，是未干的墨。", StoryMood.DARK),
-                StoryBeat("画舫舟子", "客官，浪里有眼睛。别盯太久。", StoryMood.TENSE),
-                StoryBeat("你", "那就让眼睛先眨眼。", StoryMood.FUNNY)
+                StoryBeat("库普弗细胞", "毒素太多，肝小叶正在失去过滤能力。", StoryMood.DARK),
+                StoryBeat("免疫中枢", "第四目标：移除坏死细胞与毒性菌团，恢复净化。", StoryMood.TENSE),
+                StoryBeat("你", "把能代谢的交给肝脏，不能的交给我。", StoryMood.FUNNY)
             ),
             clear = listOf(
-                StoryBeat("你", "海静了。笔锋还在抖。", StoryMood.NORMAL),
-                StoryBeat("旁白", "远峰露出一角空白——像等待落款的宣纸。", StoryMood.WARM)
+                StoryBeat("你", "毒素曲线下降了。", StoryMood.NORMAL),
+                StoryBeat("旁白", "净化后的血流涌向心脏，那里传来不规律的搏动。", StoryMood.WARM)
             ),
-            worldNote = "据说保存者盟会的档案室有一卷活画。有人进去，就再也没以原来的样子出来。"
+            worldNote = "肝脏会再生，但持续的毒性与炎症会拖慢修复；战斗越久，场地越危险。"
         ),
         ChapterLore(
-            title = "第五章 · 画魂峰",
-            subtitle = "最后一笔",
+            title = "第五章 · 心脏循环核",
+            subtitle = "全身扩散前的最后防线",
             intro = listOf(
-                StoryBeat("旁白", "峰高如悬。云是擦不掉的飞白。", StoryMood.TENSE),
-                StoryBeat("盟会文书", "封卷。落款。让世界重新学会合上。", StoryMood.NORMAL),
-                StoryBeat("你", "这一笔，我来。", StoryMood.WARM)
+                StoryBeat("旁白", "四个心腔像巨大的泵，每次收缩都让战场改变方向。", StoryMood.TENSE),
+                StoryBeat("免疫中枢", "最终目标：消灭循环变异母体，阻止病原体扩散全身。", StoryMood.NORMAL),
+                StoryBeat("你", "这一轮感染，到这里结束。", StoryMood.WARM)
             ),
             clear = listOf(
-                StoryBeat("画魂（残响）", "……写完了？", StoryMood.DARK),
-                StoryBeat("你", "写完了。可以盖印了。", StoryMood.WARM),
-                StoryBeat("旁白", "风过松林，像有人在轻轻吹干墨迹。", StoryMood.WARM)
+                StoryBeat("变异母体（残响）", "下一代……会避开你的抗体……", StoryMood.DARK),
+                StoryBeat("你", "那免疫记忆也会继续进化。", StoryMood.WARM),
+                StoryBeat("旁白", "心律恢复稳定，但新的变异序列已在远处亮起。", StoryMood.WARM)
             ),
-            worldNote = "画魂不是怪物，是未完成的自我。你打赢它，等于替世界写上句号。"
+            worldNote = "心脏将病原体送往全身，也把免疫细胞送往所有战场。这里既是终点，也是下一轮的起点。"
         )
     )
 
     fun nodeEnter(stageId: Int, nodeName: String, type: NodeType): List<StoryBeat> {
         val common = when (type) {
             NodeType.START -> listOf(
-                StoryBeat("旁白", "火堆很小，却把影子拉得很长。"),
-                StoryBeat("你", "从这里出发。")
+                StoryBeat("免疫中枢", "区域扫描完成，感染路径已经标记。"),
+                StoryBeat("你", "开始净化。")
             )
             NodeType.MOB -> listOf(
-                StoryBeat("旁白", "地面发黏。有东西在数你的脚步。", StoryMood.TENSE),
-                StoryBeat("你", "那就让它们数错。", StoryMood.TENSE)
+                StoryBeat("旁白", "病原体信号快速增殖，正在包围你的细胞膜。", StoryMood.TENSE),
+                StoryBeat("你", "锁定抗原，开始吞噬。", StoryMood.TENSE)
             )
             NodeType.ELITE -> listOf(
-                StoryBeat("旁白", "空气突然变重，像有人把世界按了暂停。", StoryMood.TENSE),
-                StoryBeat("未知", "……新的保存者？", StoryMood.DARK)
+                StoryBeat("旁白", "耐药菌膜正在形成，普通攻击很难穿透。", StoryMood.TENSE),
+                StoryBeat("变异体", "你的抗体已经过时了。", StoryMood.DARK)
             )
             NodeType.BOSS -> bossIntro(stageId)
             NodeType.GOLD -> listOf(
-                StoryBeat("旁白", "袋子鼓鼓的。有人逃得很急，或者送得很诚恳。", StoryMood.FUNNY),
-                StoryBeat("你", "先收下。道理以后再讲。", StoryMood.FUNNY)
+                StoryBeat("旁白", "一团可吸收营养漂在组织液中。", StoryMood.FUNNY),
+                StoryBeat("你", "先补充能量，再讨论代谢。", StoryMood.FUNNY)
             )
             NodeType.HEAL -> listOf(
-                StoryBeat("旁白", "泉水清得不真实，像从记忆里舀出来的。", StoryMood.WARM),
-                StoryBeat("你", "谢谢。"),
+                StoryBeat("旁白", "修复因子覆盖破损膜层，细胞活性开始恢复。", StoryMood.WARM),
+                StoryBeat("你", "修复完成。"),
             )
             NodeType.TRAP -> listOf(
-                StoryBeat("旁白", "草叶反光的角度不对。", StoryMood.TENSE),
-                StoryBeat("你", "——糟。", StoryMood.FUNNY)
+                StoryBeat("旁白", "毒性读数突然越过安全线。", StoryMood.TENSE),
+                StoryBeat("你", "膜层受损——继续移动。", StoryMood.FUNNY)
             )
             NodeType.SHOP -> listOf(
-                StoryBeat("铁匠", "刀钝了就别硬刚。我这不赊账……除非你讲个好笑的故事。", StoryMood.FUNNY),
-                StoryBeat("你", "我刚被史莱姆亲过。算好笑吗？", StoryMood.FUNNY)
+                StoryBeat("抗体工程师", "武器不匹配抗原，再高的攻击也只是浪费能量。", StoryMood.NORMAL),
+                StoryBeat("你", "按下一区域的病原体重新装配。", StoryMood.NORMAL)
             )
             NodeType.REST -> listOf(
-                StoryBeat("旁白", "篝火噼啪响，像在替你数心跳。", StoryMood.WARM),
-                StoryBeat("你", "歇一歇。还有路。", StoryMood.WARM)
+                StoryBeat("旁白", "修复信号稳定下来，细胞器重新恢复节律。", StoryMood.WARM),
+                StoryBeat("你", "短暂休整。下一处器官还在等待。", StoryMood.WARM)
             )
             NodeType.EVENT -> listOf(
-                StoryBeat("旁白", "命运喜欢在岔路口摆摊。", StoryMood.NORMAL)
+                StoryBeat("旁白", "一段陌生生物信号在岔路口等待回应。", StoryMood.NORMAL)
             )
             NodeType.EXIT -> listOf(
-                StoryBeat("旁白", "出口的风是干净的。", StoryMood.WARM)
+                StoryBeat("旁白", "这一器官的指标恢复稳定，血流开启下一条通道。", StoryMood.WARM)
             )
         }
         // node-specific spice
         val spice = when (nodeName) {
-            "史莱姆窝" -> listOf(StoryBeat("幼软泥", "咕……（像在撒娇）", StoryMood.FUNNY))
-            "混战原" -> listOf(StoryBeat("旁白", "这里没有阵线，只有互相撞在一起的慌张。", StoryMood.TENSE))
-            "精英甲虫" -> listOf(StoryBeat("甲虫", "咔——（甲壳合上，像合上一本旧账）", StoryMood.TENSE))
-            "草原霸主" -> listOf(StoryBeat("霸主", "草地是我的胃。", StoryMood.DARK))
-            "矿鼠群" -> listOf(StoryBeat("矿鼠", "吱吱！（听起来像在骂你踩了它们的尾巴）", StoryMood.FUNNY))
-            "矿精" -> listOf(StoryBeat("矿精", "把光还给我……", StoryMood.DARK))
-            "矿脉魔" -> listOf(StoryBeat("矿脉魔", "保存者……也会碎。", StoryMood.DARK))
-            "神秘商人" -> listOf(StoryBeat("商人", "现金、血、或者一个秘密。我都收。", StoryMood.FUNNY))
-            "古碑" -> listOf(StoryBeat("碑文", "「先被记住的，后被吃掉。」", StoryMood.DARK))
+            "菌落创面" -> listOf(StoryBeat("球状菌", "分裂、占据、继续分裂。", StoryMood.DARK))
+            "炎症交界" -> listOf(StoryBeat("旁白", "免疫信号与病原体在这里撞成一片。", StoryMood.TENSE))
+            "耐药杆菌" -> listOf(StoryBeat("护膜杆菌", "你的识别序列，已经被我们读完。", StoryMood.TENSE))
+            "创口感染核心" -> listOf(StoryBeat("感染核心", "创口是门，而我已经进来了。", StoryMood.DARK))
+            "飞沫病毒群" -> listOf(StoryBeat("翼膜病毒", "每一次呼吸，都会复制我们。", StoryMood.DARK))
+            "孢子团块" -> listOf(StoryBeat("孢子母体", "氧气属于生长最快的一方。", StoryMood.DARK))
+            "肺部感染核心" -> listOf(StoryBeat("变异核心", "你的肺泡会成为新的培养皿。", StoryMood.DARK))
+            "记忆细胞" -> listOf(StoryBeat("记忆细胞", "我保存抗原，也保存上一次失败的原因。", StoryMood.WARM))
+            "残留抗体" -> listOf(StoryBeat("抗体档案", "先被识别的，会更快被清除。", StoryMood.WARM))
             else -> emptyList()
         }
         return common + spice
@@ -182,84 +182,123 @@ object StoryBook {
 
     fun bossIntro(stageId: Int): List<StoryBeat> = when (stageId) {
         1 -> listOf(
-            StoryBeat("草原霸主", "你们把我切成牧场，又怪我饿。", StoryMood.DARK),
-            StoryBeat("你", "饿可以。吃人不行。", StoryMood.TENSE),
-            StoryBeat("草原霸主", "那就把剑放进胃里——我们谈谈消化。", StoryMood.FUNNY)
+            StoryBeat("创口感染核心", "你封得住伤口，封不住已经进入的我们。", StoryMood.DARK),
+            StoryBeat("你", "那就从这里开始清除。", StoryMood.TENSE)
+        )
+        2 -> listOf(
+            StoryBeat("肺部感染核心", "咳嗽会替我打开更多道路。", StoryMood.DARK),
+            StoryBeat("你", "先恢复呼吸，再切断道路。", StoryMood.TENSE)
+        )
+        3 -> listOf(
+            StoryBeat("肠道感染核心", "你分得清谁是共生者，谁是入侵者吗？", StoryMood.DARK),
+            StoryBeat("你", "越过黏膜的，就是目标。", StoryMood.TENSE)
+        )
+        4 -> listOf(
+            StoryBeat("肝部感染核心", "毒素已经让你的净化系统超载。", StoryMood.DARK),
+            StoryBeat("你", "所以先清除制造毒素的源头。", StoryMood.TENSE)
         )
         else -> listOf(
-            StoryBeat("矿脉魔", "锁链是你们写的谎言。", StoryMood.DARK),
-            StoryBeat("你", "那我改写结局。", StoryMood.TENSE),
-            StoryBeat("矿脉魔", "来啊。让石头学会流血。", StoryMood.DARK)
+            StoryBeat("循环变异母体", "击败我，下一代也会从血流中回来。", StoryMood.DARK),
+            StoryBeat("你", "下一代见。身体会记得。", StoryMood.TENSE)
         )
     }
 
     fun bossDefeat(stageId: Int): List<StoryBeat> = when (stageId) {
         1 -> listOf(
-            StoryBeat("草原霸主", "……原来我也可以被记住，而不是被消化。", StoryMood.WARM),
-            StoryBeat("旁白", "巨大的软体塌成一滩星光。草叶重新站直。", StoryMood.WARM)
+            StoryBeat("感染核心", "你会记住我的抗原……", StoryMood.DARK),
+            StoryBeat("旁白", "凝血网收紧，创口终于闭合。", StoryMood.WARM)
+        )
+        2 -> listOf(
+            StoryBeat("变异核心", "复制……中止……", StoryMood.DARK),
+            StoryBeat("旁白", "肺泡重新舒张，氧合读数恢复。", StoryMood.WARM)
+        )
+        3 -> listOf(
+            StoryBeat("感染核心", "菌群会填补我留下的位置。", StoryMood.DARK),
+            StoryBeat("旁白", "共生菌重新占据肠壁，酸潮趋于平稳。", StoryMood.WARM)
+        )
+        4 -> listOf(
+            StoryBeat("感染核心", "净化无法抹掉全部损伤。", StoryMood.DARK),
+            StoryBeat("旁白", "肝细胞启动再生，毒素读数持续下降。", StoryMood.WARM)
         )
         else -> listOf(
-            StoryBeat("矿脉魔", "保存……我……", StoryMood.DARK),
-            StoryBeat("你", "睡吧。矿道会替你守夜。", StoryMood.WARM),
-            StoryBeat("旁白", "符文的红光熄灭，像终于闭上的眼。", StoryMood.WARM)
+            StoryBeat("变异母体", "序列已经……传给下一代……", StoryMood.DARK),
+            StoryBeat("旁白", "心律恢复，但免疫中枢记录下了新的变异信号。", StoryMood.WARM)
         )
     }
 
     fun ending(hero: HeroClass, kills: Int, level: Int): List<StoryBeat> = listOf(
-        StoryBeat("旁白", "两道裂纹暂时愈合。世界没有变好，只是更安静了一点。", StoryMood.WARM),
-        StoryBeat("盟会文书", "任务评级：可保存。备注：该新人话有点多。", StoryMood.FUNNY),
+        StoryBeat("旁白", "五个器官恢复稳定，本轮感染周期已经结束。", StoryMood.WARM),
+        StoryBeat("免疫中枢", "抗原序列已写入免疫记忆。局内装备与能力即将代谢清除。", StoryMood.NORMAL),
         when (hero) {
-            HeroClass.WARRIOR -> StoryBeat("你", "剑可以收。伤还要走一阵。", StoryMood.WARM)
-            HeroClass.MAGE -> StoryBeat("你", "语法对了，故事才会继续。", StoryMood.WARM)
-            HeroClass.TAOIST -> StoryBeat("你", "果冻回坛。心回位。", StoryMood.WARM)
+            HeroClass.WARRIOR -> StoryBeat("你", "吞噬结束。等待下一次应答。", StoryMood.WARM)
+            HeroClass.MAGE -> StoryBeat("你", "抗体序列稳定，可以进入记忆库。", StoryMood.WARM)
+            HeroClass.TAOIST -> StoryBeat("你", "炎症退去，修复开始。", StoryMood.WARM)
         },
-        StoryBeat("旁白", "击破 $kills 个溢出体，成长至 Lv$level。这不是结局——只是第一罐被盖上的盖子。", StoryMood.NORMAL),
-        StoryBeat("？？？", "盖子下面……还有更深的甜。", StoryMood.DARK)
+        StoryBeat("旁白", "本轮清除 $kills 个病原体，成长至 Lv$level。等级会重置，记忆不会。", StoryMood.NORMAL),
+        StoryBeat("未知毒株", "变异完成。下一次感染，开始。", StoryMood.DARK)
     )
 
     fun eventScript(eventId: String): Triple<String, String, List<Triple<String, String, String>>> {
         // title, body, choices: label, resultText, effectKey
         return when (eventId) {
             "merchant" -> Triple(
-                "戴面具的行商",
-                "他推着一车会发光的瓶子。面具裂缝里露出的不是眼睛，是缓慢蠕动的粉。\n「血换锋刃，金换药，或者……把你刚学会的恐惧卖给我。」",
+                "树突细胞补给员",
+                "它拖着一串发光囊泡，里面封存着从创口采集的抗原。\n「活性换攻击，营养换修复剂，所有强化都要付出代谢成本。」",
                 listOf(
-                    Triple("献血换力量（-30HP，得锋刃）", "你划破手掌。行商笑出黏黏的声响：「锋利会记住你。」", "blood_atk"),
-                    Triple("买药（20金）", "瓶子里是温的。像有人把阳光熬成了糖浆。", "buy_potion"),
-                    Triple("什么都不买，转身就走", "行商挥挥手：「下次带故事来。」车轮碾过草地，没有留下辙印。", "leave")
+                    Triple("消耗活性换攻击（-30HP）", "膜层短暂破损，吞噬刃却变得更锋利。", "blood_atk"),
+                    Triple("合成修复剂（20营养）", "温热囊泡融入细胞质，成为一份修复剂。", "buy_potion"),
+                    Triple("保留资源，继续前进", "补给员收回囊泡：「保存活性也是一种策略。」", "leave")
                 )
             )
             "stele" -> Triple(
-                "会发热的古碑",
-                "碑面刻着歪扭的符文，摸上去像活人的脉搏。\n风从碑后吹来，带着铁锈与奶糖混在一起的味道。",
+                "残留抗原库",
+                "旧感染留下的抗原片段仍在脉冲。靠近后，受体开始自动匹配。",
                 listOf(
-                    Triple("默念会心之诀", "符文亮了一下。你的瞳孔深处闪过刀锋的弧光。", "crit"),
-                    Triple("用20金涂满碑缝", "金币熔化进石头。你忽然听见自己的心跳，更贪、更准。", "lifesteal"),
-                    Triple("砸开碑心（+35金，受伤）", "碑碎成金币雨。碎片也划开了你的肩甲——公平交易。", "smash")
+                    Triple("读取弱点序列", "受体完成校准，你更容易命中病原体的薄弱位置。", "crit"),
+                    Triple("投入20营养重建受体", "新受体接入膜层，吞噬时能回收更多活性。", "lifesteal"),
+                    Triple("分解抗原库（+35营养，受伤）", "回收的营养涌入细胞，但毒性碎片同时划伤膜层。", "smash")
                 )
             )
             "bard" -> Triple(
-                "流浪歌手",
-                "他只肯唱半首歌：前半截是摇篮曲，后半截总被风吹走。\n琴弦是草茎搓的，却弹出金属的脆响。",
+                "神经节律信号",
+                "一段规律电脉冲沿神经末梢传来，正在等待你的细胞与它同步。",
                 listOf(
-                    Triple("听完整段（回血）", "后半截突然补上了。你像被暖手的人揉了揉肩。", "heal_soft"),
-                    Triple("丢20金进琴箱", "他点头：「下一站给你唱完整的。」金币变成轻盈。", "spd"),
-                    Triple("什么也不给，继续赶路", "他笑笑：「赶路的人脚步最响。」", "leave")
+                    Triple("同步修复节律（回血）", "脉冲扫过破损处，膜层按同一节拍重新闭合。", "heal_soft"),
+                    Triple("消耗20营养加速传导", "电脉冲变得轻快，移动反应明显加速。", "spd"),
+                    Triple("保持原节律继续", "信号渐渐远去，你保留了当前资源。", "leave")
                 )
             )
             "archive" -> Triple(
-                "旧档案室",
-                "羊皮纸在冒汗。墨迹写着：「保存期限：永远」——后面被人划掉，改成「三天」。",
+                "菌群记忆库",
+                "大量共生菌序列在这里沉睡。错误激活可能带来毒性，正确读取则能强化身体。",
                 listOf(
-                    Triple("抄下体魄口诀", "纸边烫手。你的骨头好像更沉、更稳。", "hp"),
-                    Triple("撕下金页（+25金）", "金箔飞起来，像一群逃跑的蛾。", "gold25"),
-                    Triple("点火烧了它", "灰里跳出一枚滚烫的护符，贴在你胸口微微发热。", "armor")
+                    Triple("激活屏障菌群", "共生菌覆盖膜层，最大活性得到提升。", "hp"),
+                    Triple("代谢休眠菌群（+25营养）", "菌群化作可用营养，但记忆库也空了一块。", "gold25"),
+                    Triple("触发炎症清扫", "短促高热烧尽异常序列，并留下保护性反应。", "armor")
+                )
+            )
+            "inkwell" -> Triple(
+                "细胞因子池",
+                "高浓度信号分子悬在池中。它能放大技能反应，也可能触发过强炎症。",
+                listOf(
+                    Triple("过载应答（-25HP，技能增强）", "细胞因子涌入膜层，技能反应被大幅放大。", "skill_amp"),
+                    Triple("重置信号（回满蓝，得迅捷）", "干扰信号消退，只剩清晰的战斗节律。", "mana_cdr"),
+                    Triple("封存样本（获得五行果）", "信号分子在囊泡中凝结成一枚元素样本。", "fruit_gift")
+                )
+            )
+            "spirit_forge" -> Triple(
+                "核糖体装配台",
+                "装配台按照抗原序列折叠武器蛋白。屏幕提示：投入营养，输出一种强化。",
+                listOf(
+                    Triple("投入30营养强化武器", "新蛋白包覆刃口，旧缺口都变成更稳定的结构。", "forge_weapon"),
+                    Triple("投入25营养装配新武器", "装配台吐出一件仍带生物荧光的新武器。", "mystery_weapon"),
+                    Triple("分解装配台余料（+25营养）", "可回收片段化作营养，装配台随即进入休眠。", "gold25")
                 )
             )
             else -> Triple(
-                "路边的低语",
-                "草丛里有人说话，却看不见嘴。",
-                listOf(Triple("把耳朵凑近（+15金）", "低语塞给你一枚还带着体温的硬币。", "gold15"))
+                "受体低语",
+                "一枚游离受体反复发送同一段微弱信号。",
+                listOf(Triple("接收信号（+15营养）", "信号转化为一小份可用营养。", "gold15"))
             )
         }
     }
@@ -267,25 +306,25 @@ object StoryBook {
     fun combatTaunt(type: NodeType, wave: Int, total: Int): String? {
         if (type != NodeType.BOSS && type != NodeType.ELITE) {
             return if (wave == 0) listOf(
-                "笔锋落下，软泥围上来了。",
-                "空气甜得发腻——开战。",
-                "脚底发黏。收势。"
+                "抗原锁定，病原体正在聚集。",
+                "炎症信号升高——开战。",
+                "细胞膜承压。准备吞噬。"
             ).random()
-            else if (wave + 1 >= total) "最后一波。落款。" else "还有后续……稳住笔。"
+            else if (wave + 1 >= total) "最后一波。完成净化。" else "增殖还在继续……稳住防线。"
         }
         return when {
             type == NodeType.BOSS && wave == 0 -> listOf(
-                "它认得你手里的武器。",
-                "画中主笔抬眼看你。",
-                "盖子震了一下——Boss现身。"
+                "感染核心识别出了你的抗体。",
+                "高浓度病原体信号正在成形。",
+                "器官指标骤降——感染核心出现。"
             ).random()
-            type == NodeType.BOSS -> "墨意更浓了。它在叠痛苦。"
-            else -> "精英甲壳反光——像在嘲笑你的笔法。"
+            type == NodeType.BOSS -> "变异信号增强。它正在改变攻击方式。"
+            else -> "耐药菌膜反光——正面攻击会被削弱。"
         }
     }
 
     fun journalLine(stageTitle: String, nodeName: String, won: Boolean): String {
-        return if (won) "「$stageTitle」·$nodeName 已清理。软泥退回地缝。"
-        else "「$stageTitle」·$nodeName 失败。盟会将寄去一张空白悼词。"
+        return if (won) "「$stageTitle」·$nodeName 已净化。器官指标恢复。"
+        else "「$stageTitle」·$nodeName 失守。感染正在继续扩散。"
     }
 }

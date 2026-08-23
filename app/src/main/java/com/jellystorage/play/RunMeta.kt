@@ -13,8 +13,10 @@ class RunMeta {
     var adPotionClaims: Int = 0
     /** 本局随机种子：重开地图细节不同 */
     var runSeed: Long = System.nanoTime()
-    /** 墨阶 0..7：越高敌人越强、掉落越好，专为反复通关 */
+    /** 病毒变异代次 0..30；保留旧字段名以兼容已有存档。 */
     var inkRank: Int = 0
+    /** 本次感染周期携带的永久免疫记忆。 */
+    var immuneMemoryId: String = ImmuneMemory.CLOTTING_BARRIER.id
     private var stageCache: List<StageDef>? = null
     private var affixCache: List<InkAffix>? = null
     var skinId: String = SkinCatalog.warriorDefault.id
@@ -27,10 +29,12 @@ class RunMeta {
     var potions = 1
     var level = 1
     var xp = 0
-    var xpToLevel = 22
+    var xpToLevel = xpRequirementForLevel(1)
     var curHp = -1f
     var curMp = -1f
     val passives = linkedSetOf<PassiveId>()
+    /** 感染核心后获得的机制型技能改造；同一免疫核心可升至五阶。 */
+    val coreInkRanks = linkedMapOf<CoreInkId, Int>()
     var visited = mutableSetOf(0)
     val ownedWeapons = linkedSetOf<String>()
     var equippedWeaponId: String = "w_iron"
@@ -54,10 +58,16 @@ class RunMeta {
     var pendingLootLine: String = ""
     var toast = ""
     var toastT = 0f
+    /** One-shot presentation when weapon+armor first form a different full set. */
+    var setAwakenedId: String = ""
+    var setAwakenedT: Float = 0f
+    var setAwakenedHapticPending: Boolean = false
     var eventTitle = ""
     var eventBody = ""
     var eventChoices: List<Pair<String, () -> Unit>> = emptyList()
     var levelChoices: List<PassiveId> = emptyList()
+    var coreInkChoices: List<CoreInkId> = emptyList()
+    var pendingLevelAfterCore: Boolean = false
     var pulse = 0f
     var pendingMapAfterLevel = false
     /** 事件结束后进商店（金币袋招行商） */
@@ -103,6 +113,9 @@ class RunMeta {
     fun activeSet(): GearSetDef? =
         SetCatalog.active(equippedWeaponId, equippedArmorId)
 
+    fun immuneMemory(): ImmuneMemory =
+        ImmuneMemory.byId(immuneMemoryId) ?: ImmuneMemory.CLOTTING_BARRIER
+
     fun playerElement(): WuXing = buffElement ?: equippedWeapon().element
 
     fun totalAtkBonus(): Float {
@@ -110,7 +123,7 @@ class RunMeta {
         val set = activeSet()?.atkBonus ?: 0f
         val ring = equippedRing()?.atkBonus ?: 0f
         val boots = equippedBoots().atkBonus
-        return equippedWeapon().atkBonus + forge + buffAtk + set + ring + boots
+        return equippedWeapon().atkBonus + forge + buffAtk + set + ring + boots + immuneMemory().atkBonus
     }
 
     fun totalSkillAmp(): Float =
@@ -122,15 +135,18 @@ class RunMeta {
             (equippedRing()?.dr ?: 0f) + equippedBoots().dr
 
     fun totalLifeSteal(): Float =
-        equippedWeapon().lifeSteal + (activeSet()?.lifeSteal ?: 0f) + (equippedRing()?.lifeSteal ?: 0f)
+        equippedWeapon().lifeSteal + (activeSet()?.lifeSteal ?: 0f) + (equippedRing()?.lifeSteal ?: 0f) +
+            immuneMemory().lifeSteal
 
     fun totalCrit(): Float =
         equippedWeapon().crit + equippedArmor().crit + (activeSet()?.crit ?: 0f) +
-            (equippedRing()?.crit ?: 0f) + equippedBoots().crit
+            (equippedRing()?.crit ?: 0f) + equippedBoots().crit + immuneMemory().crit
 
     fun totalCdr(): Float =
         equippedWeapon().cdr + equippedArmor().cdr + (activeSet()?.cdr ?: 0f) +
-            (equippedRing()?.cdr ?: 0f) + equippedBoots().cdr
+            (equippedRing()?.cdr ?: 0f) + equippedBoots().cdr + immuneMemory().cdr
+
+    fun combatSkillPowerBonus(): Float = skillPowerBonus + immuneMemory().skillAmp
 
     fun setProc(): Pair<GearProc, Float> {
         val set = activeSet()
@@ -272,11 +288,16 @@ class RunMeta {
             toastT = 1.6f
             return false
         }
+        val beforeSetId = activeSet()?.id
         equippedWeaponId = id
         ensureVitals()
         val set = activeSet()
-        if (set != null) {
-            toast = "套装发动：${set.name}·${set.bonusTitle}"
+        val awakened = newlyActivatedSet(beforeSetId, set)
+        if (awakened != null) {
+            setAwakenedId = awakened.id
+            setAwakenedT = 3.2f
+            setAwakenedHapticPending = true
+            toast = "套装发动：${awakened.name}·${awakened.bonusTitle}"
             toastT = 2.0f
         }
         return true
@@ -290,11 +311,16 @@ class RunMeta {
             toastT = 1.6f
             return false
         }
+        val beforeSetId = activeSet()?.id
         equippedArmorId = id
         ensureVitals()
         val set = activeSet()
-        if (set != null) {
-            toast = "套装发动：${set.name}·${set.bonusTitle}"
+        val awakened = newlyActivatedSet(beforeSetId, set)
+        if (awakened != null) {
+            setAwakenedId = awakened.id
+            setAwakenedT = 3.2f
+            setAwakenedHapticPending = true
+            toast = "套装发动：${awakened.name}·${awakened.bonusTitle}"
             toastT = 2.0f
         }
         return true
@@ -492,10 +518,10 @@ class RunMeta {
         journal.add(line)
     }
 
-    /** 本局词缀（由种子+墨阶决定，继续游戏也能还原） */
+    /** 本轮感染特征（由种子+变异代次决定，继续游戏也能还原）。 */
     fun inkAffixes(): List<InkAffix> {
         if (affixCache == null) {
-            affixCache = rollInkAffixes(runSeed, inkRank.coerceIn(0, 7))
+            affixCache = rollInkAffixes(runSeed, inkRank.coerceIn(0, MAX_MUTATION_GENERATION))
         }
         return affixCache!!
     }
@@ -509,7 +535,7 @@ class RunMeta {
         val gearHp = equippedWeapon().hpBonus + equippedArmor().hpBonus + (activeSet()?.hpBonus ?: 0f) +
             (equippedRing()?.hpBonus ?: 0f) + equippedBoots().hpBonus
         val mul = 1f + if (PassiveId.HP_UP in passives) 0.15f else 0f
-        return (hero.baseHp + forgeArm.hpBonus + gearHp) * mul * combatMods().playerHpMul
+        return (hero.baseHp + forgeArm.hpBonus + gearHp) * mul * combatMods().playerHpMul * immuneMemory().hpMul
     }
 
     fun maxMp(): Float =
@@ -524,27 +550,22 @@ class RunMeta {
     }
 
     fun addXp(amount: Int): Boolean {
-        xp += amount
-        var leveled = false
-        // 合理曲线：约 1~2 战升 Lv2，中段 Lv3~4，Boss 前可摸 Lv5
-        while (xp >= xpToLevel) {
-            xp -= xpToLevel
-            level++
-            xpToLevel = when {
-                level <= 2 -> 22
-                level == 3 -> 36
-                level == 4 -> 48
-                else -> 40 + level * 12
-            }
-            leveled = true
-        }
-        return leveled
+        xp += amount.coerceAtLeast(0)
+        xpToLevel = xpRequirementForLevel(level)
+        if (xp < xpToLevel) return false
+
+        // 每个战斗房最多升一级：多出的经验保留到下次结算。
+        // 这样高评价/精英房仍有价值，但不会一场连跳数级、一次解锁全部技能。
+        xp -= xpToLevel
+        level++
+        xpToLevel = xpRequirementForLevel(level)
+        return true
     }
 
-    /** 本局关卡表（含墨阶缩放与种子变异） */
+    /** 本局器官路线（含变异代次缩放与种子扰动）。 */
     fun stages(): List<StageDef> {
         if (stageCache == null) {
-            stageCache = stagesForRun(runSeed, inkRank.coerceIn(0, 7))
+            stageCache = stagesForRun(runSeed, inkRank.coerceIn(0, MAX_MUTATION_GENERATION))
         }
         return stageCache!!
     }
@@ -564,19 +585,21 @@ class RunMeta {
         adDoubleClaimed = false
         adPotionClaims = 0
         runSeed = forcedSeed ?: System.nanoTime()
-        inkRank = rank.coerceIn(0, 7)
+        inkRank = rank.coerceIn(0, MAX_MUTATION_GENERATION)
         stageCache = null
         affixCache = null
         skinId = SkinCatalog.defaultFor(h).id
         weaponLevel = 0
         armorLevel = 0
-        potions = 1 + (inkRank / 3)
-        gold = 32 + inkRank * 6 + if (InkAffix.THICK_GOLD in inkAffixes()) 8 else 0
+        potions = 1 + (inkRank.coerceAtMost(9) / 3)
+        gold = 32 + inkRank.coerceAtMost(10) * 4 + immuneMemory().startGold +
+            if (InkAffix.THICK_GOLD in inkAffixes()) 8 else 0
         goldEarnedThisRun = 0
         level = 1
         xp = 0
-        xpToLevel = 22
+        xpToLevel = xpRequirementForLevel(1)
         passives.clear()
+        coreInkRanks.clear()
         stageIndex = 0
         nodeId = 0
         visited = mutableSetOf(0)
@@ -589,10 +612,15 @@ class RunMeta {
         storyIndex = 0
         journal.clear()
         pendingArenaAfterStory = false
+        coreInkChoices = emptyList()
+        pendingLevelAfterCore = false
         arenaBanner = ""
         arenaBannerT = 0f
         toast = ""
         toastT = 0f
+        setAwakenedId = ""
+        setAwakenedT = 0f
+        setAwakenedHapticPending = false
         pendingLootLine = ""
         ownedWeapons.clear()
         val starter = WeaponCatalog.starter(h)
@@ -624,22 +652,25 @@ class RunMeta {
         refreshShopOffers()
         ensureVitals()
         val af = inkAffixes()
-        toast = "本局词缀：${affixShort(af)}"
+        toast = "感染特征：${affixShort(af)}"
         toastT = 2.8f
-        addJournal("落墨·${if (inkRank > 0) "墨$inkRank" else "试笔"} · ${affixLine(af)}")
+        addJournal("${mutationGenerationLabel(inkRank)} · 免疫记忆「${immuneMemory().title}」 · ${affixLine(af)}")
     }
 
     fun fillResult(won: Boolean) {
-        resultTitle = if (won) "远征成功！" else "远征失利"
+        resultTitle = if (won) "感染周期清除！" else "免疫防线失守"
         resultBody = buildString {
-            append(if (won) "落款完成，画卷合上了。\n" else "墨渍未干，卷轴还可再展。\n")
-            append("职业 ${hero.displayName} · 墨阶 $inkRank\n")
-            append("等级 Lv$level  章节 ${stageIndex + 1}\n")
+            append(if (won) "五个器官恢复稳定，病毒将进入下一代变异。\n" else "本轮感染未被清除，免疫记忆仍会保留。\n")
+            append("职业 ${hero.displayName} · ${mutationGenerationLabel(inkRank)}\n")
+            append("免疫记忆 ${immuneMemory().title} · 等级 Lv$level  器官 ${stageIndex + 1}\n")
             append("清房 $roomsCleared  击杀 $kills\n")
             append("本局金币 $goldEarnedThisRun  持有 $gold\n")
-            append("词缀 ${affixShort(inkAffixes()).ifBlank { "无" }}\n")
+            append("感染特征 ${affixShort(inkAffixes()).ifBlank { "无" }}\n")
             append("武器 ${equippedWeapon().name}[${playerElement().short}]\n")
             append("天赋 ${if (passives.isEmpty()) "无" else passives.joinToString("、") { it.title }}\n")
+            append(
+                "免疫核心 ${if (coreInkRanks.isEmpty()) "无" else coreInkRanks.entries.joinToString("、") { "${it.key.title}${it.value}阶" }}\n"
+            )
             append("\n（生涯进度已写入本地）\n")
             if (journal.isNotEmpty()) {
                 append("\n—— 旅途摘录 ——\n")

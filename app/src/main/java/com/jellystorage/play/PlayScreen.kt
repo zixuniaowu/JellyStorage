@@ -1,5 +1,7 @@
 package com.jellystorage.play
 
+import android.os.SystemClock
+import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -39,12 +41,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -62,17 +67,71 @@ import androidx.compose.ui.unit.sp
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import com.jellystorage.BuildConfig
 import com.jellystorage.softbody.rememberHapticAudioManager
+import java.util.Locale
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
 enum class Screen {
-    LOGIN, CHAR_SELECT, CREATE_CHAR, TITLE, HOW_TO, SETTINGS, CLASS_SELECT, STORY, MAP, ARENA, SHOP, GEAR, CODEX, EVENT, LEVEL_UP, STAGE_CLEAR, RESULT
+    LOGIN, CHAR_SELECT, CREATE_CHAR, TITLE, HOW_TO, SETTINGS, CLASS_SELECT, STORY, MAP, ARENA, SHOP, GEAR, CODEX, EVENT, LEVEL_UP, CORE_INK, STAGE_CLEAR, RESULT
 }
 
-private const val APP_VERSION = "1.7.3"
+/**
+ * 战斗键位锚定右下角，间距统一按短边计算：不同宽高比只增加战场宽度，
+ * 不会把技能键拉向屏幕中央。绘制和触控必须共用这一份几何。
+ */
+internal data class ArenaControlLayout(
+    val attackX: Float, val attackY: Float,
+    val skill1X: Float, val skill1Y: Float,
+    val skill2X: Float, val skill2Y: Float,
+    val skill3X: Float, val skill3Y: Float,
+    val ultX: Float, val ultY: Float,
+    val potionX: Float, val potionY: Float
+)
+
+internal fun arenaControlLayout(w: Float, h: Float): ArenaControlLayout {
+    val u = min(w, h)
+    val attackX = w - u * 0.18f
+    val attackY = h - u * 0.20f
+    return ArenaControlLayout(
+        attackX, attackY,
+        attackX - u * 0.18f, attackY + u * 0.07f,
+        attackX - u * 0.27f, attackY - u * 0.04f,
+        attackX - u * 0.20f, attackY - u * 0.17f,
+        attackX - u * 0.04f, attackY - u * 0.25f,
+        w - u * 0.08f, attackY - u * 0.25f
+    )
+}
+
+/**
+ * Compose 的 PointerInputChange 在部分设备上会在“左指先按、右指后按”时错误平移
+ * 第二指坐标。战斗改用原始 MotionEvent 后，摇杆和按钮始终使用同一套局部坐标。
+ */
+private class ArenaRawTouchState {
+    var joyId = -1
+    var basicId = -1
+    var skill1Id = -1
+    var skill2Id = -1
+    var skill3Id = -1
+    var ultId = -1
+    var joyOrigin = Offset.Zero
+
+    fun reset() {
+        joyId = -1
+        basicId = -1
+        skill1Id = -1
+        skill2Id = -1
+        skill3Id = -1
+        ultId = -1
+        joyOrigin = Offset.Zero
+    }
+}
 
 private fun Context.findActivity(): Activity? {
     var ctx: Context = this
@@ -81,6 +140,17 @@ private fun Context.findActivity(): Activity? {
         ctx = ctx.baseContext
     }
     return null
+}
+
+private fun Context.openPrivacyPolicy(): String? {
+    val url = BuildConfig.PRIVACY_POLICY_URL
+    if (!url.startsWith("https://")) return "发布版尚未配置隐私政策网址"
+    return try {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        null
+    } catch (_: Throwable) {
+        "无法打开隐私政策"
+    }
 }
 
 private fun afterLoginScreen(progress: ProgressStore): Screen {
@@ -94,10 +164,20 @@ private fun afterLoginScreen(progress: ProgressStore): Screen {
 
 @Composable
 fun PlayScreen(modifier: Modifier = Modifier) {
-    val tm = rememberTextMeasurer()
+    // 文本测量缓存加大：战斗 HUD/技能名/飘字每帧测量，默认 8 条缓存会反复失效，
+    // 导致每帧全量重新排版（曾造成 99.7% 掉帧、点按被整帧吞掉）
+    val tm = rememberTextMeasurer(cacheSize = 512)
     val context = LocalContext.current
     val activity = context.findActivity()
     val progress = remember { ProgressStore(context) }
+    var language by remember { mutableStateOf(progress.language) }
+    GameI18n.language = language
+    val toggleLanguage = {
+        val next = language.toggled()
+        language = next
+        progress.language = next
+        GameI18n.language = next
+    }
     val ads = remember { AdsManager(context.applicationContext) }
     val haptics = rememberHapticAudioManager()
     // 同步设置开关 → 音效/震动
@@ -110,6 +190,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
     var loginMsg by remember { mutableStateOf("") }
     var loginIsRegister by remember { mutableStateOf(!progress.hasLocalAccount()) }
     var guestHint by remember { mutableStateOf("") }
+    var privacyMessage by remember { mutableStateOf("") }
     var createName by remember {
         mutableStateOf(GameCharacter.autoName(progress.listCharacters().size))
     }
@@ -129,7 +210,21 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             }
         )
     }
-    LaunchedEffect(Unit) { ads.ensureInit() }
+    // E2E/调试：屏幕切换可观测
+    LaunchedEffect(screen) { android.util.Log.d("JellyScreen", screen.name) }
+    // 标题屏展示存档中已装备的武器/防具（只读快照，不影响本局 meta）
+    val titleRunMeta = remember { RunMeta() }
+    var titleGearReady by remember { mutableStateOf(false) }
+    LaunchedEffect(screen) {
+        titleGearReady = if (screen == Screen.TITLE && progress.hasActiveRun()) {
+            progress.loadActiveRun(titleRunMeta)
+        } else false
+    }
+    LaunchedEffect(activity) {
+        ads.gatherConsent(activity) { error ->
+            if (error != null) privacyMessage = "广告隐私：$error"
+        }
+    }
     var size by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableFloatStateOf(0f) }
     var arenaKey by remember { mutableIntStateOf(0) }
@@ -148,6 +243,38 @@ fun PlayScreen(modifier: Modifier = Modifier) {
     var joyActive by remember { mutableStateOf(false) }
     var joyKnobX by remember { mutableFloatStateOf(0f) }
     var joyKnobY by remember { mutableFloatStateOf(0f) }
+    // 移动中技能盘（绘制状态）
+    var wheelActive by remember { mutableStateOf(false) }
+    var wheelX by remember { mutableFloatStateOf(0f) }
+    var wheelY by remember { mutableFloatStateOf(0f) }
+    var wheelSlotSel by remember { mutableIntStateOf(0) }
+    val arenaRawTouch = remember { ArenaRawTouchState() }
+    // 性能打点：区分 sim.update（逻辑）与 drawArena（绘制录制）耗时
+    var perfDrawMs by remember { mutableFloatStateOf(0f) }
+    var perfDrawN by remember { mutableIntStateOf(0) }
+    var perfFrameAcc by remember { mutableFloatStateOf(0f) }
+    var perfFrameN by remember { mutableIntStateOf(0) }
+    var perfFrameMax by remember { mutableFloatStateOf(0f) }
+    var perfLogT by remember { mutableFloatStateOf(0f) }
+    var uiPerfAcc by remember { mutableFloatStateOf(0f) }
+    var uiPerfN by remember { mutableIntStateOf(0) }
+
+    fun releaseArenaTouches() {
+        arenaRawTouch.reset()
+        stickX = 0f
+        stickY = 0f
+        joyActive = false
+        basicHeld = false
+        s1Held = false
+        s2Held = false
+        s3Held = false
+        s4Held = false
+        wheelActive = false
+    }
+
+    LaunchedEffect(screen, arenaKey) {
+        releaseArenaTouches()
+    }
 
     // auto-save whenever we are on the map (resume-safe)
     LaunchedEffect(screen, meta.nodeId, meta.stageIndex, meta.roomsCleared, meta.level) {
@@ -183,7 +310,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 heroLevel = meta.level,
                 playerElement = meta.playerElement(),
                 gearAtkBonus = meta.totalAtkBonus(),
-                skillPowerBonus = meta.skillPowerBonus,
+                skillPowerBonus = meta.combatSkillPowerBonus(),
                 extraDr = meta.buffDr,
                 fruitBurn = meta.buffBurn,
                 gear = meta.equippedWeapon(),
@@ -203,11 +330,27 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 extraSpd = meta.equippedBoots().spdBonus + (meta.equippedRing()?.spdBonus ?: 0f),
                 overrideProc = meta.setProc().first,
                 overrideProcPower = meta.setProc().second,
-                mods = meta.combatMods()
+                mods = meta.combatMods(),
+                roomTrial = roomTrialFor(meta.runSeed, meta.stageIndex, node),
+                coreInkRanks = meta.coreInkRanks.toMap(),
+                bossEncounter = if (node.type == NodeType.BOSS) bossEncounterForStage(meta.stage().id) else null,
+                environment = arenaEnvironmentFor(meta.stage().chapterIndex, node.id, node.type)
             )
             arena = sim
+            val environmentLine = sim.environment.takeIf { it.active }?.let {
+                "${GameI18n.tr(it.title)}・${GameI18n.tr(it.rule)}"
+            }
+            environmentLine?.let {
+                meta.arenaBanner = it
+                meta.arenaBannerT = 3.6f
+            } ?: sim.roomTrial?.let { trial ->
+                meta.arenaBanner = "${GameI18n.tr("试炼")}・${GameI18n.tr(trial.title)}：${GameI18n.tr(trial.objective(sim.waveTotal))}"
+                meta.arenaBannerT = 3.2f
+            }
             var prev = 0L
             var done = false
+            // 结算过渡：胜利 1.35s / 失败 0.9s，让最后一击的画面被看见
+            var endT = -1f
             while (screen == Screen.ARENA) {
                 withFrameNanos { now ->
                     if (prev == 0L) {
@@ -216,7 +359,25 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     }
                     val dt = ((now - prev) / 1e9f).coerceIn(0f, 0.05f)
                     prev = now
-                    if (!done && !meta.paused) {
+                    if (screen == Screen.ARENA) {
+                        val fms = dt * 1000f
+                        perfFrameAcc += fms
+                        if (fms > perfFrameMax) perfFrameMax = fms
+                        perfFrameN++
+                        perfLogT += dt
+                        if (perfLogT >= 1f) {
+                            val avg = perfFrameAcc / perfFrameN
+                            val dAvg = if (perfDrawN > 0) perfDrawMs / perfDrawN else 0f
+                            android.util.Log.d(
+                                "JellyPerf",
+                                "frame avg=${"%.1f".format(avg)}ms max=${"%.1f".format(perfFrameMax)}ms draw=${"%.1f".format(dAvg)}ms (n=${perfFrameN}/${perfDrawN})"
+                            )
+                            perfFrameAcc = 0f; perfFrameN = 0; perfFrameMax = 0f
+                            perfDrawMs = 0f; perfDrawN = 0; perfLogT = 0f
+                        }
+                    }
+                    if (!meta.paused) {
+                        // 战斗中：正常推演；结算演出窗口（endT>0）继续 tick，让粒子/飘字活着
                         val killsBefore = sim.enemies.count { it.dead }
                         val waveBefore = sim.waveIndex
                         sim.update(dt, stickX, stickY, basicHeld, s1Held, s2Held, s3Held, s4Held)
@@ -239,6 +400,11 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                             ) ?: "新的一波。"
                             meta.arenaBannerT = 2.4f
                         }
+                        val tacticalHint = sim.consumeTacticalHintLine()
+                        if (tacticalHint.isNotEmpty()) {
+                            meta.arenaBanner = tacticalHint
+                            meta.arenaBannerT = 2.8f
+                        }
                         val phaseLine = sim.consumeBossPhaseLine()
                         if (phaseLine.isNotEmpty()) {
                             meta.arenaBanner = "Boss · $phaseLine"
@@ -255,105 +421,18 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         meta.curMp = sim.mp
                         if (sim.finished) {
                             done = true
+                            if (endT < 0f) {
+                                endT = if (sim.won) 1.35f else 0.9f
+                                meta.arenaBanner = if (sim.won) "清场！" else "力竭…"
+                                meta.arenaBannerT = endT
+                            }
+                        }
+                    }
+                    if (endT >= 0f && screen == Screen.ARENA) {
+                        endT -= dt
+                        if (endT < 0f) {
                             if (sim.won) {
-                                meta.gold += sim.goldEarned
-                                meta.goldEarnedThisRun += sim.goldEarned
-                                meta.roomsCleared++
-                                meta.curHp = sim.player.hp
-                                meta.curMp = sim.mp
-                                // grant loot from fight (武器/残卷/果实)
-                                val lootBits = mutableListOf<String>()
-                                for (id in sim.lootedWeaponIds) {
-                                    WeaponCatalog.byId(id)?.let { w ->
-                                        if (meta.grantWeapon(w)) {
-                                            lootBits.add("${w.classLabel()}${w.name}[${w.element.short}]")
-                                            // 可装备且更高攻则自动装上
-                                            if (w.canEquip(meta.hero) && w.atkBonus > meta.equippedWeapon().atkBonus) {
-                                                meta.equipWeapon(w.id)
-                                            }
-                                        } else lootBits.add("武(已有)")
-                                    }
-                                }
-                                for (id in sim.lootedTomeIds) {
-                                    TomeCatalog.byId(id)?.let { t ->
-                                        meta.ownedTomes.add(t.id)
-                                        meta.skillPowerBonus += t.powerBonus
-                                        lootBits.add(t.name)
-                                    }
-                                }
-                                for (id in sim.lootedItemIds) {
-                                    ItemCatalog.byId(id)?.let { it ->
-                                        meta.addBagItem(it.id, 1)
-                                        lootBits.add(it.name)
-                                    }
-                                }
-                                for (id in sim.lootedArmorIds) {
-                                    ArmorCatalog.byId(id)?.let { a ->
-                                        if (meta.grantArmor(a)) {
-                                            lootBits.add("甲${a.name}")
-                                            if (a.canEquip(meta.hero) && a.hpBonus > meta.equippedArmor().hpBonus) {
-                                                meta.equipArmor(a.id)
-                                            }
-                                        } else lootBits.add("甲(已有)")
-                                    }
-                                }
-                                for (id in sim.lootedRingIds) {
-                                    RingCatalog.byId(id)?.let { r ->
-                                        if (meta.grantRing(r)) {
-                                            lootBits.add("戒${r.name}")
-                                            if (meta.equippedRingId.isBlank()) meta.equipRing(r.id)
-                                        } else lootBits.add("戒(已有)")
-                                    }
-                                }
-                                for (id in sim.lootedBootsIds) {
-                                    BootsCatalog.byId(id)?.let { b ->
-                                        if (meta.grantBoots(b)) {
-                                            lootBits.add("鞋${b.name}")
-                                            if (b.spdBonus > meta.equippedBoots().spdBonus ||
-                                                b.hpBonus > meta.equippedBoots().hpBonus
-                                            ) {
-                                                meta.equipBoots(b.id)
-                                            }
-                                        } else lootBits.add("鞋(已有)")
-                                    }
-                                }
-                                progress.unlockCollection(
-                                    meta.ownedWeapons, meta.ownedArmors,
-                                    meta.ownedRings, meta.ownedBoots
-                                )
-                                meta.consumeFightBuffsAfterCombat()
-                                val stage = meta.stage()
-                                val node = currentNode(meta)
-                                meta.addJournal(
-                                    StoryBook.journalLine(stage.title, node?.name ?: "未知", true)
-                                )
-                                val leveled = meta.addXp(sim.xpEarned)
-                                val grade = sim.clearGrade.ifEmpty { "B" }
-                                meta.toast = buildString {
-                                    append("清场 $grade +${sim.goldEarned}金 +${sim.xpEarned}经验")
-                                    if (lootBits.isNotEmpty()) append(" · 掉落 ${lootBits.joinToString()}")
-                                }
-                                meta.toastT = 2.8f
-                                meta.arenaBanner = "评价 $grade！"
-                                meta.arenaBannerT = 1.8f
-                                // boss defeat monologue
-                                if (node?.type == NodeType.BOSS) {
-                                    meta.queueStory(
-                                        StoryBook.bossDefeat(stage.id),
-                                        if (leveled) "LEVEL_UP" else "MAP"
-                                    )
-                                    if (leveled) {
-                                        meta.levelChoices = randomPassives(meta.passives, 3)
-                                        meta.pendingMapAfterLevel = true
-                                    }
-                                    screen = Screen.STORY
-                                } else if (leveled) {
-                                    meta.levelChoices = randomPassives(meta.passives, 3)
-                                    meta.pendingMapAfterLevel = true
-                                    screen = Screen.LEVEL_UP
-                                } else {
-                                    screen = Screen.MAP
-                                }
+                                screen = settleVictory(sim, meta, progress)
                             } else {
                                 meta.fillResult(won = false)
                                 progress.recordRunEnd(
@@ -374,6 +453,13 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     }
                     meta.pulse += dt
                     if (meta.toastT > 0f) meta.toastT -= dt
+                    if (meta.setAwakenedT > 0f) meta.setAwakenedT = max(0f, meta.setAwakenedT - dt)
+                    if (meta.setAwakenedHapticPending) {
+                        haptics.soundEnabled = progress.soundOn
+                        haptics.hapticsEnabled = progress.hapticsOn
+                        haptics.combatPulse(6)
+                        meta.setAwakenedHapticPending = false
+                    }
                     frame = now.toFloat()
                 }
             }
@@ -391,14 +477,203 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     prev = now
                     meta.pulse += dt
                     if (meta.toastT > 0f) meta.toastT -= dt
+                    if (meta.setAwakenedT > 0f) meta.setAwakenedT = max(0f, meta.setAwakenedT - dt)
+                    if (meta.setAwakenedHapticPending) {
+                        haptics.soundEnabled = progress.soundOn
+                        haptics.hapticsEnabled = progress.hapticsOn
+                        haptics.combatPulse(6)
+                        meta.setAwakenedHapticPending = false
+                    }
                     acc += dt
                     if (acc >= 0.033f) { // ~30fps UI
                         acc = 0f
                         frame = now.toFloat()
                     }
+                    uiPerfAcc += dt
+                    uiPerfN++
+                    if (uiPerfAcc >= 1f) {
+                        android.util.Log.d("JellyPerf", "ui screen=$screen avg=${"%.0f".format(uiPerfAcc / uiPerfN * 1000f)}ms n=$uiPerfN")
+                        uiPerfAcc = 0f; uiPerfN = 0
+                    }
                 }
             }
         }
+    }
+
+    fun handleArenaRawTouch(event: MotionEvent): Boolean {
+        if (screen != Screen.ARENA || size.width <= 0 || size.height <= 0) return false
+
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val u = min(w, h)
+        val controls = arenaControlLayout(w, h)
+        val maxJoy = u * 0.13f
+
+        fun inCircle(p: Offset, cx: Float, cy: Float, radius: Float): Boolean {
+            val dx = p.x - cx
+            val dy = p.y - cy
+            return dx * dx + dy * dy <= radius * radius
+        }
+
+        fun updateJoystick(p: Offset) {
+            val dx = p.x - arenaRawTouch.joyOrigin.x
+            val dy = p.y - arenaRawTouch.joyOrigin.y
+            val length = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+            val clamped = min(length, maxJoy)
+            stickX = dx / length * (clamped / maxJoy)
+            stickY = dy / length * (clamped / maxJoy)
+            joyKnobX = arenaRawTouch.joyOrigin.x + dx / length * clamped
+            joyKnobY = arenaRawTouch.joyOrigin.y + dy / length * clamped
+        }
+
+        fun press(pointerId: Int, p: Offset) {
+            android.util.Log.d(
+                "JellyInterop",
+                "DOWN id=$pointerId pos=(${p.x.toInt()},${p.y.toInt()}) joy=${arenaRawTouch.joyId >= 0}"
+            )
+            if (p.y < h * 0.12f && p.x < w * 0.18f) {
+                meta.paused = !meta.paused
+                if (meta.paused) releaseArenaTouches()
+                return
+            }
+            if (meta.paused) {
+                when {
+                    p.y in h * 0.42f..h * 0.52f -> meta.paused = false
+                    p.y in h * 0.54f..h * 0.64f -> {
+                        meta.paused = false
+                        meta.curHp = arena?.player?.hp ?: meta.curHp
+                        meta.curMp = arena?.mp ?: meta.curMp
+                        progress.saveActiveRun(meta)
+                        screen = Screen.TITLE
+                        arena = null
+                    }
+                    p.y in h * 0.66f..h * 0.76f -> {
+                        meta.paused = false
+                        meta.fillResult(false)
+                        progress.recordRunEnd(
+                            false, meta.stageIndex, meta.level,
+                            meta.goldEarnedThisRun, meta.kills
+                        )
+                        screen = Screen.RESULT
+                        arena = null
+                    }
+                }
+                return
+            }
+
+            val sim = arena
+            when {
+                inCircle(p, controls.ultX, controls.ultY, u * 0.088f * 1.35f) -> {
+                    arenaRawTouch.ultId = pointerId
+                    s4Held = true
+                    if (sim != null && !sim.skillUnlocked(4)) {
+                        sim.showHint("Lv${sim.skillUnlockLevel(4)} 解锁必杀")
+                    } else {
+                        sim?.requestTap(4)
+                    }
+                }
+                inCircle(p, controls.potionX, controls.potionY, u * 0.07f * 1.20f) -> {
+                    if (sim != null && meta.potions > 0 && sim.tryUsePotion()) {
+                        meta.potions--
+                        meta.curHp = sim.player.hp
+                        meta.toast = "用药 +${(sim.player.maxHp * 0.4f).toInt()} HP  剩${meta.potions}瓶"
+                        meta.toastT = 1.5f
+                    } else {
+                        meta.toast = if (meta.potions <= 0) "没有药水（地图商店可买）" else "生命已满"
+                        meta.toastT = 1.2f
+                    }
+                }
+                inCircle(p, controls.attackX, controls.attackY, u * 0.10f * 1.45f) -> {
+                    arenaRawTouch.basicId = pointerId
+                    basicHeld = true
+                    sim?.requestBasicTap()
+                    android.util.Log.d("JellyInterop", "=> ATTACK id=$pointerId")
+                }
+                inCircle(p, controls.skill1X, controls.skill1Y, u * 0.072f * 1.35f) -> {
+                    arenaRawTouch.skill1Id = pointerId
+                    s1Held = true
+                    if (sim != null && !sim.skillUnlocked(1)) {
+                        sim.showHint("Lv${sim.skillUnlockLevel(1)} 解锁此技能")
+                    } else {
+                        sim?.requestTap(1)
+                    }
+                }
+                inCircle(p, controls.skill2X, controls.skill2Y, u * 0.072f * 1.35f) -> {
+                    arenaRawTouch.skill2Id = pointerId
+                    s2Held = true
+                    if (sim != null && !sim.skillUnlocked(2)) {
+                        sim.showHint("Lv${sim.skillUnlockLevel(2)} 解锁此技能")
+                    } else {
+                        sim?.requestTap(2)
+                    }
+                }
+                inCircle(p, controls.skill3X, controls.skill3Y, u * 0.072f * 1.35f) -> {
+                    arenaRawTouch.skill3Id = pointerId
+                    s3Held = true
+                    if (sim != null && !sim.skillUnlocked(3)) {
+                        sim.showHint("Lv${sim.skillUnlockLevel(3)} 解锁此技能")
+                    } else {
+                        sim?.requestTap(3)
+                    }
+                }
+                p.x < w * 0.48f && arenaRawTouch.joyId < 0 -> {
+                    arenaRawTouch.joyId = pointerId
+                    arenaRawTouch.joyOrigin = p
+                    joyOx = p.x
+                    joyOy = p.y
+                    joyActive = true
+                    updateJoystick(p)
+                    android.util.Log.d("JellyInterop", "=> JOYSTICK id=$pointerId")
+                }
+            }
+        }
+
+        fun release(pointerId: Int) {
+            when (pointerId) {
+                arenaRawTouch.joyId -> {
+                    arenaRawTouch.joyId = -1
+                    stickX = 0f
+                    stickY = 0f
+                    joyActive = false
+                }
+                arenaRawTouch.basicId -> {
+                    arenaRawTouch.basicId = -1
+                    basicHeld = false
+                }
+                arenaRawTouch.skill1Id -> {
+                    arenaRawTouch.skill1Id = -1
+                    s1Held = false
+                }
+                arenaRawTouch.skill2Id -> {
+                    arenaRawTouch.skill2Id = -1
+                    s2Held = false
+                }
+                arenaRawTouch.skill3Id -> {
+                    arenaRawTouch.skill3Id = -1
+                    s3Held = false
+                }
+                arenaRawTouch.ultId -> {
+                    arenaRawTouch.ultId = -1
+                    s4Held = false
+                }
+            }
+        }
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val index = event.actionIndex
+                press(event.getPointerId(index), Offset(event.getX(index), event.getY(index)))
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val joyIndex = event.findPointerIndex(arenaRawTouch.joyId)
+                if (joyIndex >= 0) updateJoystick(Offset(event.getX(joyIndex), event.getY(joyIndex)))
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
+                release(event.getPointerId(event.actionIndex))
+            }
+            MotionEvent.ACTION_CANCEL -> releaseArenaTouches()
+        }
+        return true
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -406,10 +681,14 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { size = it }
+            // 战斗必须直接读取 MotionEvent。SH-M10 在先按摇杆后按攻击时，Compose
+            // PointerInputChange 会把第二指向右平移 200~300px；Interop 坐标与绘制一致。
+            .pointerInteropFilter { event -> handleArenaRawTouch(event) }
             // rebind when size ready — critical so hitboxes match real pixels
-            .pointerInput(screen, arenaKey, size.width, size.height, createName, createHeroIdx, charTick, confirmKind, confirmPayload, gearScroll) {
+            .pointerInput(screen, arenaKey, size.width, size.height, createName, createHeroIdx, charTick, confirmKind, confirmPayload, gearScroll, language) {
                 if (size.width <= 0 || size.height <= 0) return@pointerInput
                 if (screen == Screen.LOGIN) return@pointerInput
+                if (screen == Screen.ARENA) return@pointerInput
                 // 全局确认弹窗优先
                 if (confirmKind.isNotEmpty()) {
                     awaitEachGesture {
@@ -474,26 +753,28 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     awaitPointerEventScope {
                         val w = size.width.toFloat()
                         val h = size.height.toFloat()
+                        android.util.Log.d("JellyInput", "ARENA input ready w=${w.toInt()} h=${h.toInt()}")
                         val u = min(w, h) // landscape-safe control scale
+                        val controls = arenaControlLayout(w, h)
                         // RIGHT controls (thumb cluster)
                         // 5 skill cluster
-                        val atkCx = w * 0.88f
-                        val atkCy = h * 0.76f
+                        val atkCx = controls.attackX
+                        val atkCy = controls.attackY
                         val atkR = u * 0.10f
-                        val s1Cx = w * 0.76f
-                        val s1Cy = h * 0.84f
+                        val s1Cx = controls.skill1X
+                        val s1Cy = controls.skill1Y
                         val s1R = u * 0.072f
-                        val s2Cx = w * 0.68f
-                        val s2Cy = h * 0.70f
+                        val s2Cx = controls.skill2X
+                        val s2Cy = controls.skill2Y
                         val s2R = u * 0.072f
-                        val s3Cx = w * 0.74f
-                        val s3Cy = h * 0.54f
+                        val s3Cx = controls.skill3X
+                        val s3Cy = controls.skill3Y
                         val s3R = u * 0.072f
-                        val ultCx = w * 0.86f
-                        val ultCy = h * 0.42f
+                        val ultCx = controls.ultX
+                        val ultCy = controls.ultY
                         val ultR = u * 0.088f
-                        val potCx = w * 0.93f
-                        val potCy = h * 0.28f
+                        val potCx = controls.potionX
+                        val potCy = controls.potionY
                         val potR = u * 0.07f
                         val maxJoy = u * 0.13f
                         var joyId: PointerId? = null
@@ -503,6 +784,58 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         var s2Id: PointerId? = null
                         var s3Id: PointerId? = null
                         var s4Id: PointerId? = null
+                        // 移动中技能盘：点按=普攻（不弹盘）；按住≥250ms 才弹盘滑动选技能。
+                        // 固件篡改绝对坐标，但相对滑动增量不受影响 → 滑动选槽可靠。
+                        var wheelPtr: PointerId? = null
+                        var wheelAnchor = Offset.Zero
+                        var pendingWheel: PointerId? = null
+                        var pendingWheelT0 = 0L
+                        var pendingWheelAnchor = Offset.Zero
+                        fun activateWheel(now: Long) {
+                            val pid = pendingWheel ?: return
+                            if (now - pendingWheelT0 < 250L) return
+                            wheelPtr = pid
+                            wheelAnchor = pendingWheelAnchor
+                            wheelSlotSel = 0
+                            wheelActive = true
+                            wheelX = pendingWheelAnchor.x
+                            wheelY = pendingWheelAnchor.y
+                            if (basicId == pid) { basicId = null; basicHeld = false }
+                            pendingWheel = null
+                            android.util.Log.d("JellyInput", "=> WHEEL(hold) pos=(${wheelX.toInt()},${wheelY.toInt()})")
+                        }
+                        // 已见手指登记：一次性分配语义。
+                        // 修复 pointerInput 重启窗口内按下的手指丢 DOWN 事件 —— 首个 MOVE 也视为按下；
+                        // 但每根手指只分配一次（滑动跨区不重新判定），保持原始操作语义。
+                        val knownIds = HashSet<PointerId>()
+                        // 幽灵触点回收：手指 UP 事件丢失（系统手势截胡/驱动偶发）时，
+                        // 该指针会永远按住摇杆或技能，其余触控全部失灵。超时强制释放。
+                        val lastSeen = HashMap<PointerId, Long>()
+                        fun reapGhostPointers(nowMs: Long) {
+                            val it = lastSeen.entries.iterator()
+                            while (it.hasNext()) {
+                                val (id, t) = it.next()
+                                // 30s：静止长按（推摇杆跑/按住普攻）不产生 MOVE，短超时会误杀；
+                                // 只兜系统级 UP 丢失（手势截胡）造成的分钟级卡死
+                                if (nowMs - t > 30_000L) {
+                                    android.util.Log.w("JellyInput", "REAP ghost ptr=${id.value} idle=${nowMs - t}ms")
+                                    it.remove()
+                                    knownIds.remove(id)
+                                    when (id) {
+                                        joyId -> {
+                                            joyId = null
+                                            stickX = 0f; stickY = 0f
+                                            joyActive = false
+                                        }
+                                        basicId -> { basicId = null; basicHeld = false }
+                                        s1Id -> { s1Id = null; s1Held = false }
+                                        s2Id -> { s2Id = null; s2Held = false }
+                                        s3Id -> { s3Id = null; s3Held = false }
+                                        s4Id -> { s4Id = null; s4Held = false }
+                                    }
+                                }
+                            }
+                        }
                         fun inC(p: Offset, cx: Float, cy: Float, r: Float): Boolean {
                             val dx = p.x - cx
                             val dy = p.y - cy
@@ -522,9 +855,18 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         }
                         while (true) {
                             val event = awaitPointerEvent()
+                            reapGhostPointers(System.currentTimeMillis())
                             for (ch in event.changes) {
                                 val p = ch.position
-                                if (ch.changedToDown()) {
+                                lastSeen[ch.id] = System.currentTimeMillis()
+                                // 按下判定：正常 DOWN，或未登记手指的首个事件（自愈重启窗口丢的 DOWN）
+                                val isDown = ch.changedToDown() || (ch.pressed && ch.id !in knownIds)
+                                if (isDown) {
+                                    knownIds.add(ch.id)
+                                    android.util.Log.d(
+                                        "JellyInput",
+                                        "DOWN ptr=${ch.id.value} raw=${ch.changedToDown()} pos=(${p.x.toInt()},${p.y.toInt()})"
+                                    )
                                     // pause hitbox always
                                     if (p.y < h * 0.12f && p.x < w * 0.18f) {
                                         meta.paused = !meta.paused
@@ -560,8 +902,19 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                         ch.consume()
                                         continue
                                     }
+                                    // 实体按钮始终优先精确命中；否则移动时点右侧空白区域才启用快捷技能盘。
+                                    // 不能让“移动中右半屏”分支抢在按钮前，否则攻击键长按会在 250ms 后
+                                    // 被技能盘接管，未解锁技能按钮也会被错误当成普攻。
+                                    val joyHeld = joyId != null
                                     when {
-                                        inC(p, potCx, potCy, potR * 1.3f) -> {
+                                        // 必杀优先于药水：两者热区相邻，误触药水会浪费一瓶药
+                                        inC(p, ultCx, ultCy, ultR * 1.45f) -> {
+                                            s4Id = ch.id; s4Held = true; ch.consume()
+                                            android.util.Log.d("JellyInput", "=> ULT ptr=${ch.id.value}")
+                                            val sim = arena
+                                            if (sim != null && !sim.skillUnlocked(4)) sim.showHint("Lv${sim.skillUnlockLevel(4)} 解锁必杀")
+                                        }
+                                        inC(p, potCx, potCy, potR) -> {
                                             val sim = arena
                                             if (sim != null && meta.potions > 0) {
                                                 if (sim.tryUsePotion()) {
@@ -579,20 +932,52 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                             }
                                             ch.consume()
                                         }
-                                        inC(p, atkCx, atkCy, atkR * 1.25f) -> {
+                                        inC(p, atkCx, atkCy, atkR * 1.45f) -> {
                                             basicId = ch.id; basicHeld = true; ch.consume()
+                                            android.util.Log.d("JellyInput", "=> ATK ptr=${ch.id.value}")
+                                            arena?.requestBasicTap()
                                         }
-                                        inC(p, s1Cx, s1Cy, s1R * 1.25f) -> {
+                                        inC(p, s1Cx, s1Cy, s1R * 1.45f) -> {
                                             s1Id = ch.id; s1Held = true; ch.consume()
+                                            android.util.Log.d("JellyInput", "=> S1 ptr=${ch.id.value}")
+                                            val sim = arena
+                                            if (sim != null) {
+                                                if (!sim.skillUnlocked(1)) sim.showHint("Lv${sim.skillUnlockLevel(1)} 解锁此技能")
+                                                else sim.requestTap(1)
+                                            }
                                         }
-                                        inC(p, s2Cx, s2Cy, s2R * 1.25f) -> {
+                                        inC(p, s2Cx, s2Cy, s2R * 1.45f) -> {
                                             s2Id = ch.id; s2Held = true; ch.consume()
+                                            android.util.Log.d("JellyInput", "=> S2 ptr=${ch.id.value}")
+                                            val sim = arena
+                                            if (sim != null) {
+                                                if (!sim.skillUnlocked(2)) sim.showHint("Lv${sim.skillUnlockLevel(2)} 解锁此技能")
+                                                else sim.requestTap(2)
+                                            }
                                         }
-                                        inC(p, s3Cx, s3Cy, s3R * 1.25f) -> {
+                                        inC(p, s3Cx, s3Cy, s3R * 1.45f) -> {
                                             s3Id = ch.id; s3Held = true; ch.consume()
+                                            android.util.Log.d("JellyInput", "=> S3 ptr=${ch.id.value}")
+                                            val sim = arena
+                                            if (sim != null) {
+                                                if (!sim.skillUnlocked(3)) sim.showHint("Lv${sim.skillUnlockLevel(3)} 解锁此技能")
+                                                else sim.requestTap(3)
+                                            }
                                         }
-                                        inC(p, ultCx, ultCy, ultR * 1.25f) -> {
-                                            s4Id = ch.id; s4Held = true; ch.consume()
+                                        // SH-M10 双指会把攻击指向右下偏移；实体攻击键已内移，这个宽松区域
+                                        // 接住漂移后的攻击触点。技能键均在上方，不会再被此处误判成普攻。
+                                        joyHeld && p.x > w - u * 0.10f && p.y > atkCy -> {
+                                            basicId = ch.id; basicHeld = true; ch.consume()
+                                            arena?.requestBasicTap()
+                                            android.util.Log.d("JellyInput", "=> ATK(joy-corrected) ptr=${ch.id.value} pos=(${p.x.toInt()},${p.y.toInt()})")
+                                        }
+                                        // 其余右侧空白仅用于长按技能盘；快速点按不再冒充普攻。
+                                        joyHeld && p.x > w * 0.52f -> {
+                                            pendingWheel = ch.id
+                                            pendingWheelT0 = SystemClock.uptimeMillis()
+                                            pendingWheelAnchor = p
+                                            ch.consume()
+                                            android.util.Log.d("JellyInput", "=> WHEEL(pending) ptr=${ch.id.value} pos=(${p.x.toInt()},${p.y.toInt()})")
                                         }
                                         // LEFT ~48%: floating joystick
                                         p.x < w * 0.48f -> {
@@ -603,13 +988,24 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                             joyActive = true
                                             applyJoy(p)
                                             ch.consume()
+                                            android.util.Log.d("JellyInput", "=> JOY ptr=${ch.id.value}")
                                         }
                                         // right empty area also attacks
                                         else -> {
                                             basicId = ch.id; basicHeld = true; ch.consume()
+                                            android.util.Log.d("JellyInput", "=> ATK(fallback) ptr=${ch.id.value}")
+                                            arena?.requestBasicTap()
                                         }
                                     }
                                 } else if (ch.pressed) {
+                                    // 按住≥250ms → 技能盘弹出（任意事件驱动计时，静止长按也触发）
+                                    if (pendingWheel != null) activateWheel(SystemClock.uptimeMillis())
+                                    // 技能盘跟踪：用相对增量选槽（绝对坐标被固件平移也不影响）
+                                    if (ch.id == wheelPtr) {
+                                        val sel = pickGhostSlot(p.x - wheelAnchor.x, p.y - wheelAnchor.y, w, h)
+                                        if (sel != wheelSlotSel) wheelSlotSel = sel
+                                        ch.consume()
+                                    }
                                     when (ch.id) {
                                         joyId -> {
                                             applyJoy(p)
@@ -632,11 +1028,56 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                         }
                                     }
                                 } else {
+                                    knownIds.remove(ch.id)
+                                    lastSeen.remove(ch.id)
+                                    android.util.Log.d("JellyInput", "UP ptr=${ch.id.value}")
+                                    // 技能盘释放：选中槽 1~4 → 技能/必杀；0（中心）→ 普攻
+                                    if (ch.id == wheelPtr) {
+                                        wheelPtr = null
+                                        wheelActive = false
+                                        val sim = arena
+                                        val sel = wheelSlotSel
+                                        when {
+                                            sim == null -> Unit
+                                            sel in 1..3 -> {
+                                                if (!sim.skillUnlocked(sel)) sim.showHint("Lv${sim.skillUnlockLevel(sel)} 解锁此技能")
+                                                else sim.requestTap(sel)
+                                            }
+                                            sel == 4 -> {
+                                                if (!sim.skillUnlocked(4)) sim.showHint("Lv${sim.skillUnlockLevel(4)} 解锁必杀")
+                                                else sim.requestTap(4)
+                                            }
+                                            else -> sim.requestBasicTap()
+                                        }
+                                        android.util.Log.d("JellyInput", "=> WHEEL(release $sel) ptr=${ch.id.value}")
+                                        ch.consume()
+                                    }
+                                    // 右侧空白快速点按不执行技能，避免未解锁按钮因坐标漂移变成普攻。
+                                    if (ch.id == pendingWheel) {
+                                        pendingWheel = null
+                                        android.util.Log.d("JellyInput", "=> WHEEL(cancel tap) ptr=${ch.id.value}")
+                                    }
                                     if (ch.id == joyId) {
                                         joyId = null
                                         stickX = 0f
                                         stickY = 0f
                                         joyActive = false
+                                        // 摇杆松开：技能盘一并收起（手指仍按着盘则按当前选中释放）
+                                        pendingWheel = null
+                                        if (wheelPtr != null) {
+                                            val sim = arena
+                                            val sel = wheelSlotSel
+                                            if (sim != null) {
+                                                when {
+                                                    sel in 1..3 && sim.skillUnlocked(sel) -> sim.requestTap(sel)
+                                                    sel == 4 && sim.skillUnlocked(4) -> sim.requestTap(4)
+                                                    else -> sim.requestBasicTap()
+                                                }
+                                            }
+                                            wheelPtr = null
+                                            wheelActive = false
+                                            android.util.Log.d("JellyInput", "=> WHEEL(joy-up release $sel)")
+                                        }
                                         ch.consume()
                                     }
                                     if (ch.id == basicId) {
@@ -701,6 +1142,15 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                 confirmKind = kind
                                 confirmPayload = payload
                             },
+                            onPrivacyPolicy = {
+                                privacyMessage = context.openPrivacyPolicy().orEmpty()
+                            },
+                            onAdPrivacy = {
+                                ads.showPrivacyOptions(activity) { result ->
+                                    privacyMessage = result.orEmpty()
+                                }
+                            },
+                            onLanguageToggle = toggleLanguage,
                             gearScroll = gearScroll
                         )
                     }
@@ -712,9 +1162,14 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         val w = size.width.toFloat().coerceAtLeast(1f)
         val h = size.height.toFloat().coerceAtLeast(1f)
         when (screen) {
-            Screen.TITLE -> drawTitle(tm, w, h, meta.pulse, progress)
+            Screen.TITLE -> drawTitle(
+                tm, w, h, meta.pulse, progress,
+                weapon = if (titleGearReady) titleRunMeta.equippedWeapon() else null,
+                armor = if (titleGearReady) titleRunMeta.equippedArmor() else null,
+                setDef = if (titleGearReady) titleRunMeta.activeSet() else null
+            )
             Screen.HOW_TO -> drawHowTo(tm, w, h)
-            Screen.SETTINGS -> drawSettings(tm, w, h, progress)
+            Screen.SETTINGS -> drawSettings(tm, w, h, progress, privacyMessage)
             Screen.CHAR_SELECT -> drawCharSelect(tm, w, h, progress, charTick, meta.pulse)
             Screen.CREATE_CHAR -> drawCreateChar(tm, w, h, createName, createHeroIdx, meta.pulse)
             Screen.CLASS_SELECT -> drawClassSelect(tm, w, h, meta.pulse)
@@ -725,6 +1180,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             Screen.GEAR -> drawGear(meta, tm, w, h, gearScroll)
             Screen.CODEX -> drawCodex(meta, progress, tm, w, h)
             Screen.LEVEL_UP -> drawLevelUp(meta, tm, w, h)
+            Screen.CORE_INK -> drawCoreInkChoice(meta, tm, w, h)
             Screen.RESULT -> drawResult(meta, tm, w, h, progress)
             Screen.LOGIN -> drawRect(
                 Brush.verticalGradient(listOf(Color(0xFF0B1020), Color(0xFF1E1B4B))),
@@ -733,13 +1189,20 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             Screen.ARENA -> {
                 val sim = arena
                 if (sim != null) {
+                    val t0 = System.nanoTime()
                     drawArena(
                         sim, meta, tm, w, h, stickX, stickY,
                         joyActive, joyOx, joyOy, joyKnobX, joyKnobY,
-                        basicHeld, s1Held, s2Held, s3Held, s4Held
+                        basicHeld, s1Held, s2Held, s3Held, s4Held,
+                        wheelActive, wheelX, wheelY, wheelSlotSel
                     )
+                    perfDrawMs += (System.nanoTime() - t0) / 1e6f
+                    perfDrawN++
                 } else drawRect(Color(0xFF0B1020), size = Size(w, h))
             }
+        }
+        if (meta.setAwakenedT > 0f && meta.setAwakenedId.isNotBlank()) {
+            drawSetAwakenedOverlay(meta, tm, w, h)
         }
         if (confirmKind.isNotEmpty()) {
             drawConfirmLayer(tm, w, h, confirmKind)
@@ -753,6 +1216,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             isRegister = loginIsRegister,
             hasAccount = progress.hasLocalAccount(),
             guestHint = guestHint,
+            language = language,
             onUserChange = { loginUser = it },
             onPassChange = { loginPass = it },
             onToggleMode = {
@@ -788,7 +1252,8 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 loginIsRegister = true
                 loginMsg = "已填入随机账号，点「注册进入」"
                 guestHint = "用户 ${loginUser} / 密码 ${loginPass}"
-            }
+            },
+            onLanguageToggle = toggleLanguage
         )
     }
     }
@@ -810,6 +1275,7 @@ private fun startRunWithActiveCharacter(
     val rank = if (daily) progress.preferredInkRank.coerceAtLeast(1).coerceAtMost(progress.inkRankUnlocked.coerceAtLeast(1))
     else progress.preferredInkRank
     val seed = if (daily) dailyInkSeed() else null
+    meta.immuneMemoryId = progress.preferredImmuneMemoryId
     meta.resetRun(ch.hero, rank, forcedSeed = seed)
     meta.characterName = ch.name
     progress.recordRunStart()
@@ -819,8 +1285,8 @@ private fun startRunWithActiveCharacter(
         StoryBook.worldPremise + StoryBook.heroGreeting(ch.hero) + storyCh.intro,
         "MAP"
     )
-    val tag = if (daily) "今日画题" else "出征"
-    meta.addJournal("$tag · ${ch.name}（${ch.hero.displayName}） · 墨$rank · ${meta.affixHudLine()}")
+    val tag = if (daily) "今日毒株" else "免疫出击"
+    meta.addJournal("$tag · ${ch.name}（${ch.hero.displayName}） · ${mutationGenerationLabel(rank)} · ${meta.affixHudLine()}")
     meta.toast = "$tag：${ch.name} · ${meta.affixHudLine()}"
     meta.toastT = 2.2f
     setScreen(Screen.STORY)
@@ -843,7 +1309,7 @@ private fun DrawScope.drawConfirmLayer(tm: TextMeasurer, w: Float, h: Float, kin
     )
     val (titleText, body) = when (kind) {
         "new_run" -> "开始新冒险？" to "将覆盖当前存档进度，无法恢复。\n确认后从第一章重新出发。"
-        "daily_run" -> "今日画题？" to "使用今日固定种子出征（全天相同）。\n会覆盖当前存档。词缀见标题左下。"
+        "daily_run" -> "挑战今日毒株？" to "使用今日固定变异种子出击（全天相同）。\n会覆盖当前存档，感染特征见标题左下。"
         "delete_char" -> "删除角色？" to "角色与其存档将永久删除。\n此操作不可撤销。"
         "exit_chapter" -> "进入下一章？" to "确认离开本章，前往下一章节。"
         "abandon" -> "放弃本局？" to "本局结束，进度写入生涯统计。\n可在标题重新出征。"
@@ -867,6 +1333,117 @@ private fun currentNode(meta: RunMeta): MapNode? {
     }
 }
 
+/** 战斗胜利结算：发奖、记档，返回下一屏（由结算延迟结束时机调用） */
+private fun settleVictory(
+    sim: ArenaSim,
+    meta: RunMeta,
+    progress: ProgressStore
+): Screen {
+    meta.gold += sim.goldEarned
+    meta.goldEarnedThisRun += sim.goldEarned
+    meta.roomsCleared++
+    meta.curHp = sim.player.hp
+    meta.curMp = sim.mp
+    val lootBits = mutableListOf<String>()
+    for (id in sim.lootedWeaponIds) {
+        WeaponCatalog.byId(id)?.let { w ->
+            if (meta.grantWeapon(w)) {
+                lootBits.add("${w.classLabel()}${w.name}[${w.element.short}]")
+                if (w.canEquip(meta.hero) && w.atkBonus > meta.equippedWeapon().atkBonus) {
+                    meta.equipWeapon(w.id)
+                }
+            } else lootBits.add("武(已有)")
+        }
+    }
+    for (id in sim.lootedTomeIds) {
+        TomeCatalog.byId(id)?.let { t ->
+            meta.ownedTomes.add(t.id)
+            meta.skillPowerBonus += t.powerBonus
+            lootBits.add(t.name)
+        }
+    }
+    for (id in sim.lootedItemIds) {
+        ItemCatalog.byId(id)?.let { item ->
+            meta.addBagItem(item.id, 1)
+            lootBits.add(item.name)
+        }
+    }
+    for (id in sim.lootedArmorIds) {
+        ArmorCatalog.byId(id)?.let { a ->
+            if (meta.grantArmor(a)) {
+                lootBits.add("甲${a.name}")
+                if (a.canEquip(meta.hero) && a.hpBonus > meta.equippedArmor().hpBonus) {
+                    meta.equipArmor(a.id)
+                }
+            } else lootBits.add("甲(已有)")
+        }
+    }
+    for (id in sim.lootedRingIds) {
+        RingCatalog.byId(id)?.let { r ->
+            if (meta.grantRing(r)) {
+                lootBits.add("戒${r.name}")
+                if (meta.equippedRingId.isBlank()) meta.equipRing(r.id)
+            } else lootBits.add("戒(已有)")
+        }
+    }
+    for (id in sim.lootedBootsIds) {
+        BootsCatalog.byId(id)?.let { b ->
+            if (meta.grantBoots(b)) {
+                lootBits.add("鞋${b.name}")
+                if (b.spdBonus > meta.equippedBoots().spdBonus ||
+                    b.hpBonus > meta.equippedBoots().hpBonus
+                ) {
+                    meta.equipBoots(b.id)
+                }
+            } else lootBits.add("鞋(已有)")
+        }
+    }
+    progress.unlockCollection(
+        meta.ownedWeapons, meta.ownedArmors,
+        meta.ownedRings, meta.ownedBoots
+    )
+    meta.consumeFightBuffsAfterCombat()
+    val stage = meta.stage()
+    val node = currentNode(meta)
+    meta.addJournal(
+        StoryBook.journalLine(stage.title, node?.name ?: "未知", true)
+    )
+    sim.roomTrial?.let { trial ->
+        meta.addJournal("${trial.title}·${if (sim.trialSucceeded) "达成" else "未成"}")
+    }
+    val leveled = meta.addXp(sim.xpEarned)
+    val grade = sim.clearGrade.ifEmpty { "B" }
+    meta.toast = buildString {
+        append("清场 $grade +${sim.goldEarned}金 +${sim.xpEarned}经验")
+        sim.roomTrial?.let { trial ->
+            append(" · ${trial.title}${if (sim.trialSucceeded) "✓" else "未达"}")
+        }
+        if (lootBits.isNotEmpty()) append(" · 掉落 ${lootBits.joinToString()}")
+    }
+    meta.toastT = 2.8f
+    meta.arenaBanner = "评价 $grade！"
+    meta.arenaBannerT = 1.8f
+    if (node?.type == NodeType.BOSS) {
+        meta.coreInkChoices = coreInkChoices(meta.hero)
+        meta.pendingLevelAfterCore = leveled
+        meta.queueStory(
+            StoryBook.bossDefeat(stage.id),
+            "CORE_INK"
+        )
+        if (leveled) {
+            meta.levelChoices = randomPassives(meta.passives, 3)
+            meta.pendingMapAfterLevel = true
+        }
+        return Screen.STORY
+    }
+    if (leveled) {
+        meta.levelChoices = randomPassives(meta.passives, 3)
+        meta.pendingMapAfterLevel = true
+        return Screen.LEVEL_UP
+    }
+    return Screen.MAP
+}
+
 private fun handleUiTap(
     meta: RunMeta,
     progress: ProgressStore,
@@ -884,29 +1461,41 @@ private fun handleUiTap(
     createHeroIdx: Int = 0,
     setCreateHeroIdx: (Int) -> Unit = {},
     requestConfirm: (String, String) -> Unit = { _, _ -> },
+    onPrivacyPolicy: () -> Unit = {},
+    onAdPrivacy: () -> Unit = {},
+    onLanguageToggle: () -> Unit = {},
     gearScroll: Float = 0f
 ) {
+    if (meta.setAwakenedT > 0f) {
+        // First tap only dismisses the reveal; never leak through to an equipment/shop action.
+        meta.setAwakenedT = min(meta.setAwakenedT, 0.35f)
+        return
+    }
     when (screen) {
         Screen.TITLE -> {
+            if (pos.x in w * 0.02f..w * 0.17f && pos.y in h * 0.015f..h * 0.105f) {
+                onLanguageToggle()
+                return
+            }
             // 与 drawTitle 按钮区域严格对齐
             if (pos.x in w * 0.48f..w * 0.90f) {
                 val hasSave = progress.hasActiveRun()
                 val rows = if (hasSave) {
                     listOf(
-                        h * 0.26f to h * 0.35f, // 继续
-                        h * 0.36f to h * 0.45f, // 新冒险
-                        h * 0.46f to h * 0.54f, // 角色
-                        h * 0.55f to h * 0.63f, // 图鉴
-                        h * 0.64f to h * 0.72f, // 说明
-                        h * 0.73f to h * 0.82f  // 设置
+                        h * 0.30f to h * 0.39f, // 继续
+                        h * 0.40f to h * 0.49f, // 新冒险
+                        h * 0.50f to h * 0.58f, // 角色
+                        h * 0.59f to h * 0.67f, // 图鉴
+                        h * 0.68f to h * 0.76f, // 说明
+                        h * 0.77f to h * 0.85f  // 设置
                     )
                 } else {
                     listOf(
-                        h * 0.28f to h * 0.38f, // 开始
-                        h * 0.40f to h * 0.49f, // 角色
-                        h * 0.51f to h * 0.60f, // 图鉴
-                        h * 0.62f to h * 0.71f, // 说明
-                        h * 0.73f to h * 0.82f  // 设置
+                        h * 0.30f to h * 0.40f, // 开始
+                        h * 0.42f to h * 0.51f, // 角色
+                        h * 0.53f to h * 0.62f, // 图鉴
+                        h * 0.64f to h * 0.73f, // 说明
+                        h * 0.75f to h * 0.84f  // 设置
                     )
                 }
                 when {
@@ -927,14 +1516,19 @@ private fun handleUiTap(
                     !hasSave && pos.y in rows[4].first..rows[4].second -> setScreen(Screen.SETTINGS)
                 }
             }
-            // 点角色信息区切换墨阶（左半下方）
-            if (pos.x in w * 0.50f..w * 0.92f && pos.y in h * 0.21f..h * 0.255f) {
+            // 标题信息区左半切换毒株代次，右半切换本轮携带的免疫记忆。
+            if (pos.x in w * 0.48f..w * 0.70f && pos.y in h * 0.17f..h * 0.285f) {
                 val next = (progress.preferredInkRank + 1)
                 progress.preferredInkRank = if (next > progress.inkRankUnlocked) 0 else next
-                meta.toast = "出征墨阶 → ${progress.preferredInkRank}（最高已解${progress.inkRankUnlocked}）"
+                meta.toast = "毒株 → ${mutationGenerationLabel(progress.preferredInkRank)}（最高${progress.inkRankUnlocked}代）"
                 meta.toastT = 1.6f
             }
-            // 今日画题：左下角色旁小钮（无存档或有存档均可，有存档需确认）
+            if (pos.x in w * 0.70f..w * 0.92f && pos.y in h * 0.17f..h * 0.285f) {
+                val memory = progress.cyclePreferredImmuneMemory()
+                meta.toast = "免疫记忆 → ${memory.title}：${memory.desc}"
+                meta.toastT = 1.8f
+            }
+            // 今日毒株：固定日种子（无存档或有存档均可，有存档需确认）
             if (pos.x in w * 0.06f..w * 0.40f && pos.y in h * 0.78f..h * 0.88f) {
                 if (progress.hasActiveRun()) {
                     requestConfirm("daily_run", "")
@@ -1015,31 +1609,33 @@ private fun handleUiTap(
             setScreen(Screen.TITLE)
         }
         Screen.CODEX -> {
-            // 6 tabs: 武 甲 戒 鞋 套 技
-            val tabW = w * 0.11f
-            for (i in 0..5) {
+            // 5 tabs: 武 甲 戒 鞋 套 —— 装备图鉴只放装备；职业技能在操作说明里讲
+            val tabW = w * 0.125f
+            for (i in 0..4) {
                 val x0 = w * 0.02f + i * (tabW + w * 0.01f)
-                if (pos.y in h * 0.065f..h * 0.14f && pos.x in x0..(x0 + tabW)) {
+                if (pos.y in h * 0.105f..h * 0.17f && pos.x in x0..(x0 + tabW)) {
                     meta.codexTab = i
                     meta.codexSelectedId = ""
                     return
                 }
             }
-            HeroClass.entries.forEachIndexed { i, _ ->
-                val x0 = w * 0.70f + i * w * 0.09f
-                if (pos.y in h * 0.065f..h * 0.14f && pos.x in x0..(x0 + w * 0.085f)) {
-                    meta.codexHeroIndex = i
-                    meta.codexSelectedId = ""
-                    return
+            if (meta.codexTab in listOf(0, 1, 4)) {
+                HeroClass.entries.forEachIndexed { i, _ ->
+                    val x0 = w * 0.70f + i * w * 0.09f
+                    if (pos.y in h * 0.105f..h * 0.17f && pos.x in x0..(x0 + w * 0.085f)) {
+                        meta.codexHeroIndex = i
+                        meta.codexSelectedId = ""
+                        return
+                    }
                 }
             }
             val hero = HeroClass.entries[meta.codexHeroIndex.coerceIn(0, 2)]
             when (meta.codexTab) {
                 0 -> {
                     val list = WeaponCatalog.all.filter { it.hero == hero || it.hero == null }
-                        .sortedWith(compareBy({ it.tierLevel() }, { it.cost }))
+                        .sortedWith(compareBy<GearWeapon>({ !progress.isWeaponKnown(it.id) }, { -it.tierLevel() }, { -it.cost }))
                     list.take(8).forEachIndexed { i, wp ->
-                        val y0 = h * 0.17f + i * h * 0.085f
+                        val y0 = h * 0.20f + i * h * 0.085f
                         if (pos.y in y0..(y0 + h * 0.08f) && pos.x in w * 0.02f..w * 0.42f) {
                             meta.codexSelectedId = wp.id
                             return
@@ -1048,9 +1644,9 @@ private fun handleUiTap(
                 }
                 1 -> {
                     val list = ArmorCatalog.all.filter { it.hero == hero || it.hero == null }
-                        .sortedWith(compareBy({ it.tier }, { it.cost }))
+                        .sortedWith(compareBy<GearArmor>({ !progress.isArmorKnown(it.id) }, { -it.tier }, { -it.cost }))
                     list.take(8).forEachIndexed { i, ar ->
-                        val y0 = h * 0.17f + i * h * 0.085f
+                        val y0 = h * 0.20f + i * h * 0.085f
                         if (pos.y in y0..(y0 + h * 0.08f) && pos.x in w * 0.02f..w * 0.42f) {
                             meta.codexSelectedId = ar.id
                             return
@@ -1058,8 +1654,10 @@ private fun handleUiTap(
                     }
                 }
                 2 -> {
-                    RingCatalog.all.filter { it.canEquip(hero) }.take(8).forEachIndexed { i, r ->
-                        val y0 = h * 0.17f + i * h * 0.085f
+                    RingCatalog.all.filter { it.canEquip(hero) }
+                        .sortedWith(compareBy<GearAccessory>({ !progress.isRingKnown(it.id) }, { -it.tier }, { -it.cost }))
+                        .take(8).forEachIndexed { i, r ->
+                        val y0 = h * 0.20f + i * h * 0.085f
                         if (pos.y in y0..(y0 + h * 0.08f) && pos.x in w * 0.02f..w * 0.42f) {
                             meta.codexSelectedId = r.id
                             return
@@ -1067,8 +1665,10 @@ private fun handleUiTap(
                     }
                 }
                 3 -> {
-                    BootsCatalog.all.filter { it.canEquip(hero) }.take(8).forEachIndexed { i, b ->
-                        val y0 = h * 0.17f + i * h * 0.085f
+                    BootsCatalog.all.filter { it.canEquip(hero) }
+                        .sortedWith(compareBy<GearAccessory>({ !progress.isBootsKnown(it.id) }, { -it.tier }, { -it.cost }))
+                        .take(8).forEachIndexed { i, b ->
+                        val y0 = h * 0.20f + i * h * 0.085f
                         if (pos.y in y0..(y0 + h * 0.08f) && pos.x in w * 0.02f..w * 0.42f) {
                             meta.codexSelectedId = b.id
                             return
@@ -1077,18 +1677,9 @@ private fun handleUiTap(
                 }
                 4 -> {
                     SetCatalog.forHero(hero).forEachIndexed { i, set ->
-                        val y0 = h * 0.17f + i * h * 0.12f
+                        val y0 = h * 0.20f + i * h * 0.12f
                         if (pos.y in y0..(y0 + h * 0.11f) && pos.x in w * 0.02f..w * 0.42f) {
                             meta.codexSelectedId = set.id
-                            return
-                        }
-                    }
-                }
-                5 -> {
-                    skillsFor(hero).forEachIndexed { i, sk ->
-                        val y0 = h * 0.17f + i * h * 0.12f
-                        if (pos.y in y0..(y0 + h * 0.11f) && pos.x in w * 0.02f..w * 0.42f) {
-                            meta.codexSelectedId = "skill_${sk.slot.name}"
                             return
                         }
                     }
@@ -1098,14 +1689,20 @@ private fun handleUiTap(
         }
         Screen.LOGIN -> Unit
         Screen.SETTINGS -> {
+            if (pos.y in h * 0.02f..h * 0.13f && pos.x in w * 0.80f..w * 0.98f) {
+                onLanguageToggle()
+                return
+            }
             if (pos.y in h * 0.40f..h * 0.48f) progress.soundOn = !progress.soundOn
             if (pos.y in h * 0.50f..h * 0.58f) progress.hapticsOn = !progress.hapticsOn
-            if (pos.y in h * 0.66f..h * 0.74f) {
+            if (pos.y in h * 0.59f..h * 0.67f && pos.x < w * 0.5f) onPrivacyPolicy()
+            if (pos.y in h * 0.59f..h * 0.67f && pos.x >= w * 0.5f) onAdPrivacy()
+            if (pos.y in h * 0.72f..h * 0.80f && pos.x in w * 0.25f..w * 0.75f) {
                 progress.logoutLocal()
                 setScreen(Screen.LOGIN)
                 return
             }
-            if (pos.y in h * 0.80f..h * 0.90f) setScreen(Screen.TITLE)
+            if (pos.y in h * 0.86f..h * 0.95f) setScreen(Screen.TITLE)
         }
         Screen.RESULT -> {
             // 看广告双倍本局金币
@@ -1173,6 +1770,7 @@ private fun handleUiTap(
                         } else setScreen(Screen.MAP)
                     }
                     "LEVEL_UP" -> setScreen(Screen.LEVEL_UP)
+                    "CORE_INK" -> setScreen(Screen.CORE_INK)
                     "RESULT" -> setScreen(Screen.RESULT)
                     "STAGE_CLEAR" -> setScreen(Screen.STAGE_CLEAR)
                     else -> setScreen(Screen.MAP)
@@ -1356,6 +1954,23 @@ private fun handleUiTap(
                 }
             }
         }
+        Screen.CORE_INK -> {
+            meta.coreInkChoices.forEachIndexed { i, ink ->
+                val y = h * 0.30f + i * h * 0.17f
+                if (pos.y in y..(y + h * 0.145f) && pos.x in w * 0.08f..w * 0.92f) {
+                    val rank = meta.coreInkRanks.upgrade(ink)
+                    meta.addJournal("免疫核心·${ink.title}${rank}阶")
+                    meta.toast = "${ink.glyph} ${ink.title} · ${rank}阶"
+                    meta.toastT = 2.4f
+                    meta.coreInkChoices = emptyList()
+                    progress.saveActiveRun(meta)
+                    val goLevel = meta.pendingLevelAfterCore && meta.levelChoices.isNotEmpty()
+                    meta.pendingLevelAfterCore = false
+                    setScreen(if (goLevel) Screen.LEVEL_UP else Screen.MAP)
+                    return
+                }
+            }
+        }
         Screen.SHOP -> {
             if (pos.y in h * 0.88f..h * 0.98f && pos.x in w * 0.54f..w * 0.92f) {
                 setScreen(Screen.MAP)
@@ -1469,7 +2084,6 @@ private fun handleUiTap(
                 }
             }
         }
-        else -> Unit
     }
 }
 
@@ -1635,6 +2249,7 @@ private fun enterNode(
             meta.eventBody = script.second
             meta.eventChoices = script.third.map { triple ->
                 triple.first to {
+                    var outcome = triple.second
                     when (triple.third) {
                         "blood_atk" -> {
                             meta.curHp = (meta.curHp - 30f).coerceAtLeast(1f)
@@ -1645,8 +2260,7 @@ private fun enterNode(
                         "buy_potion" -> {
                             val err = meta.tryBuyPotion(20)
                             if (err != null) {
-                                meta.toast = err
-                                meta.toastT = 1.4f
+                                outcome = err
                             }
                         }
                         "crit" -> meta.passives.add(PassiveId.CRIT)
@@ -1656,8 +2270,7 @@ private fun enterNode(
                             meta.toast = "获得吸血天赋"
                             meta.toastT = 1.3f
                         } else {
-                            meta.toast = "金币不足(需20)"
-                            meta.toastT = 1.4f
+                            outcome = "金币不足(需20，现有${meta.gold})"
                         }
                         "smash" -> {
                             meta.gold += 35
@@ -1683,17 +2296,50 @@ private fun enterNode(
                                 meta.toast = "获得移速天赋"
                                 meta.toastT = 1.3f
                             } else {
-                                meta.toast = "金币不足(需20)"
-                                meta.toastT = 1.4f
+                                outcome = "金币不足(需20，现有${meta.gold})"
                             }
                         }
                         "hp" -> meta.passives.add(PassiveId.HP_UP)
                         "armor" -> meta.passives.add(PassiveId.ARMOR)
+                        "skill_amp" -> {
+                            meta.curHp = (meta.curHp - 25f).coerceAtLeast(1f)
+                            meta.skillPowerBonus += 0.08f
+                        }
+                        "mana_cdr" -> {
+                            meta.curMp = meta.maxMp()
+                            meta.passives.add(PassiveId.CDR)
+                        }
+                        "fruit_gift" -> {
+                            val fruit = ItemCatalog.randomFruit()
+                            meta.addBagItem(fruit.id)
+                            outcome = "墨滴凝成「${fruit.name}」"
+                        }
+                        "forge_weapon" -> when {
+                            meta.weaponLevel >= weaponUpgradeTable(meta.hero).lastIndex -> outcome = "武器锻造已满"
+                            meta.gold < 30 -> outcome = "金币不足(需30，现有${meta.gold})"
+                            else -> {
+                                meta.gold -= 30
+                                meta.weaponLevel++
+                                outcome = "武器锻造提升至 Lv${meta.weaponLevel}"
+                            }
+                        }
+                        "mystery_weapon" -> if (meta.gold < 25) {
+                            outcome = "金币不足(需25，现有${meta.gold})"
+                        } else {
+                            meta.gold -= 25
+                            val weapon = WeaponCatalog.randomDrop(meta.hero)
+                            if (weapon != null) {
+                                val fresh = meta.grantWeapon(weapon)
+                                if (fresh && weapon.atkBonus >= meta.equippedWeapon().atkBonus) meta.equipWeapon(weapon.id)
+                                outcome = if (fresh) "锻炉赠予「${weapon.name}」" else "锻炉吐出已有兵器，返还10金"
+                                if (!fresh) meta.gold += 10
+                            }
+                        }
                         "leave" -> Unit
                         else -> Unit
                     }
-                    meta.addJournal(triple.second.take(28))
-                    meta.toast = triple.second.take(36)
+                    meta.addJournal(outcome.take(28))
+                    meta.toast = outcome.take(36)
                     meta.toastT = 2.2f
                 }
             }
@@ -1718,6 +2364,32 @@ private fun enterNode(
 }
 
 /** 地图主面板几何：与 drawMap 严格一致（精简顶栏后地图更宽） */
+/**
+ * 移动中技能盘选槽：以按下点为「攻」（槽0），按相对滑动增量选技能。
+ * 布局与实体按钮同构（缩放 0.6）：技1 左下、技2 左、技3 左上、必杀 上。
+ * 只依赖相对增量 —— 本机固件在两指同按时平移第二指绝对坐标，但平移在增量中抵消。
+ */
+internal fun pickGhostSlot(dx: Float, dy: Float, w: Float, h: Float, radius: Float = 60f): Int {
+    val ghosts = arrayOf(
+        1 to (-0.072f * w to 0.048f * h),   // 技1：左下
+        2 to (-0.120f * w to -0.036f * h),  // 技2：左
+        3 to (-0.084f * w to -0.132f * h),  // 技3：左上
+        4 to (-0.012f * w to -0.204f * h)   // 必杀：上
+    )
+    var best = 0
+    var bestD = radius
+    for ((slot, off) in ghosts) {
+        val gx = dx - off.first
+        val gy = dy - off.second
+        val d = sqrt(gx * gx + gy * gy)
+        if (d < bestD) {
+            bestD = d
+            best = slot
+        }
+    }
+    return best
+}
+
 private fun mapPanel(w: Float, h: Float): FloatArray {
     // l, t, mw, mh, bottomTop
     val hudBottom = h * 0.11f
@@ -1775,28 +2447,114 @@ private fun DrawScope.drawWuxingChart(tm: TextMeasurer, left: Float, top: Float,
 
 // ── Draw ────────────────────────────────────────────────────────────────
 
-private fun DrawScope.drawTitle(tm: TextMeasurer, w: Float, h: Float, pulse: Float, progress: ProgressStore) {
-    // 标题也走古画绢本底，和地图统一
-    drawRect(Brush.verticalGradient(listOf(Color(0xFFF3E9D2), Color(0xFFE0D0B0), Color(0xFFC4A882))), size = Size(w, h))
-    drawInkScrollBackdrop(
-        StageDef(0, "", "", emptyList(), 0xFFF3E9D2, 0xFFC4A882, chapterIndex = 0),
-        w, h, pulse, progress.preferredInkRank
+private fun DrawScope.drawImmuneTitleBackdrop(w: Float, h: Float, pulse: Float) {
+    drawRect(
+        Brush.verticalGradient(listOf(Color(0xFFFFE8DF), Color(0xFFE8B5AD), Color(0xFF9F5360))),
+        size = Size(w, h)
     )
+    // 贯穿人体的血管主干；粗底线让它在浅色组织上保持可读。
+    fun vessel(color: Color, y: Float, phase: Float, width: Float) {
+        val path = Path()
+        path.moveTo(-w * 0.05f, y)
+        for (i in 0..12) {
+            val x = w * i / 11f
+            val yy = y + sin(i * 0.9f + phase + pulse * 0.35f) * h * 0.055f
+            path.lineTo(x, yy)
+        }
+        drawPath(path, Color(0x26000000), style = Stroke(width + 8f, cap = StrokeCap.Round))
+        drawPath(path, color.copy(alpha = 0.36f), style = Stroke(width, cap = StrokeCap.Round))
+    }
+    vessel(Color(0xFFD83B55), h * 0.34f, 0.2f, h * 0.035f)
+    vessel(Color(0xFF3B82A0), h * 0.67f, 1.7f, h * 0.028f)
+
+    // 半透明组织细胞与细胞核。
+    for (i in 0 until 30) {
+        val x = w * (((i * 157 + 41) % 997) / 997f)
+        val y = h * (0.08f + (((i * 89 + 17) % 883) / 883f) * 0.80f)
+        val r = h * (0.020f + (i % 5) * 0.004f)
+        drawCircle(Color(0x20FFF7ED), r, Offset(x, y))
+        drawCircle(Color(0x307C2D4A), r, Offset(x, y), style = Stroke(1.5f))
+        if (i % 3 == 0) drawCircle(Color(0x388B2F55), r * 0.28f, Offset(x + r * 0.15f, y - r * 0.1f))
+    }
+    // 漂浮红细胞强调“人体内”而非山水卷轴。
+    for (i in 0 until 12) {
+        val x = w * (0.04f + i * 0.085f)
+        val y = h * (0.50f + sin(i * 1.3f + pulse * 0.8f) * 0.18f)
+        drawOval(
+            Color(0x42BE123C),
+            topLeft = Offset(x - h * 0.020f, y - h * 0.010f),
+            size = Size(h * 0.040f, h * 0.020f)
+        )
+    }
+}
+
+private fun DrawScope.drawTitle(
+    tm: TextMeasurer,
+    w: Float,
+    h: Float,
+    pulse: Float,
+    progress: ProgressStore,
+    weapon: GearWeapon? = null,
+    armor: GearArmor? = null,
+    setDef: GearSetDef? = null
+) {
+    drawImmuneTitleBackdrop(w, h, pulse)
     val titleScale = min(w, h) * 0.075f
     val active = progress.activeCharacter()
     val skin = if (active != null) SkinCatalog.defaultFor(active.hero) else SkinCatalog.warriorDefault
-    drawCuteHero(w * 0.22f, h * 0.48f + sin(pulse * 2f) * 4f, titleScale * 1.2f, 1f, skin)
-    title(tm, "果冻勇者", w * 0.68f, h * 0.06f, Color(0xFF2C1810), 30.sp)
-    title(tm, "水墨远征 · v$APP_VERSION", w * 0.68f, h * 0.13f, Color(0xFF5C4033), 11.sp)
+    val heroX = w * 0.22f
+    val heroY = h * 0.48f + sin(pulse * 2f) * 4f
+    // 与实际装备联动：武器/防具分列角色两侧，套装带光环（同地图角色卡视觉语言）
+    if (weapon != null) {
+        drawWeaponArt(heroX - titleScale * 1.9f, heroY + titleScale * 0.05f, titleScale * 1.15f, weapon, pulse)
+    }
+    if (armor != null) {
+        drawArmorArt(heroX + titleScale * 1.9f, heroY + titleScale * 0.1f, titleScale * 1.05f, armor, pulse)
+    }
+    if (setDef != null) {
+        drawSetAura(heroX, heroY, titleScale, setDef, pulse)
+    }
+    // 手绘立绘优先（战斗内软体小人另走 Canvas 物理体）
+    val activeHero = active?.hero
+    val drewPortrait = activeHero != null &&
+        drawHeroPortrait(activeHero, heroX, heroY + titleScale * 1.3f, titleScale * 2.6f)
+    if (!drewPortrait) {
+        drawCuteHero(heroX, heroY, titleScale * 1.2f, 1f, skin)
+    }
+    if (weapon != null || armor != null) {
+        // 装备台座墨晕
+        drawOval(
+            Color(0x33000000),
+            topLeft = Offset(heroX - titleScale * 1.7f, heroY + titleScale * 1.35f),
+            size = Size(titleScale * 3.4f, titleScale * 0.5f)
+        )
+    }
+    drawInkButton(w * 0.02f, h * 0.02f, w * 0.15f, h * 0.07f, Color(0xFF0F766E), 10f)
+    title(
+        tm,
+        if (GameI18n.language == GameLanguage.CHINESE) "日本語" else "中文",
+        w * 0.095f, h * 0.037f, Color(0xFFF5EBD4), 12.sp
+    )
+    // Stack the header from measured text heights. Fixed percentage baselines overlap
+    // on high-density phones (for example 640 dpi), because sp grows independently
+    // from the canvas height.
+    var headerY = h * 0.035f
+    fun headerLine(text: String, color: Color, size: TextUnit, gap: Float = h * 0.006f) {
+        val shown = GameI18n.tr(text)
+        val layout = tm.measure(shown, TextStyle(color = color, fontSize = size, fontWeight = FontWeight.Bold))
+        drawText(layout, topLeft = Offset(w * 0.68f - layout.size.width / 2f, headerY))
+        headerY += layout.size.height + gap
+    }
+    headerLine("免疫战线", Color(0xFF2C1810), 30.sp, h * 0.002f)
+    headerLine("人体防卫战 · v${BuildConfig.VERSION_NAME}", Color(0xFF5C4033), 11.sp)
     if (active != null) {
-        title(tm, "角色 ${active.name} · ${active.hero.displayName}", w * 0.68f, h * 0.18f, Color(0xFFFDE68A), 13.sp)
-        title(
-            tm,
-            "${active.summaryLine()} · 墨阶${progress.preferredInkRank}/${progress.inkRankUnlocked}（点标题墨阶可切换）",
-            w * 0.68f, h * 0.225f, Color(0xFF7C2D12), 10.sp
+        headerLine("角色 ${active.name} · ${active.hero.displayName}", Color(0xFF92400E), 13.sp)
+        headerLine(
+            "${mutationGenerationLabel(progress.preferredInkRank)}/${progress.inkRankUnlocked}代 · 免疫记忆「${progress.preferredImmuneMemory().title}」（左右点选）",
+            Color(0xFF7C2D12), 10.sp
         )
     } else {
-        title(tm, "请先创建角色", w * 0.68f, h * 0.18f, Color(0xFFF87171), 13.sp)
+        headerLine("请先创建角色", Color(0xFFF87171), 13.sp)
     }
     fun menuBtn(y: Float, bh: Float, text: String, col: Color) {
         drawRoundRect(Color(0xEE3D2914), Offset(w * 0.48f, y), Size(w * 0.42f, bh), CornerRadius(12f))
@@ -1806,23 +2564,23 @@ private fun DrawScope.drawTitle(tm: TextMeasurer, w: Float, h: Float, pulse: Flo
     val hasSave = progress.hasActiveRun()
     val (known, total) = progress.collectionProgress()
     if (hasSave) {
-        menuBtn(h * 0.26f, h * 0.09f, "继续冒险", Color(0xFFFBBF24))
-        title(tm, progress.activeRunSummary(), w * 0.69f, h * 0.335f, Color(0xFFFDE68A), 9.sp)
-        menuBtn(h * 0.36f, h * 0.09f, "开始新冒险", Color(0xFF4ADE80))
-        menuBtn(h * 0.46f, h * 0.08f, "切换角色", Color(0xFF38BDF8))
-        menuBtn(h * 0.55f, h * 0.08f, "装备图鉴 $known/$total", Color(0xFFFBBF24))
-        menuBtn(h * 0.64f, h * 0.08f, "操作说明", Color(0xFF60A5FA))
-        menuBtn(h * 0.73f, h * 0.08f, "记录 / 设置", Color(0xFFA78BFA))
+        menuBtn(h * 0.30f, h * 0.09f, "继续冒险", Color(0xFFFBBF24))
+        title(tm, progress.activeRunSummary(), w * 0.69f, h * 0.365f, Color(0xFFFDE68A), 8.sp)
+        menuBtn(h * 0.40f, h * 0.09f, "开始新冒险", Color(0xFF4ADE80))
+        menuBtn(h * 0.50f, h * 0.08f, "切换角色", Color(0xFF38BDF8))
+        menuBtn(h * 0.59f, h * 0.08f, "装备图鉴 $known/$total", Color(0xFFFBBF24))
+        menuBtn(h * 0.68f, h * 0.08f, "操作说明", Color(0xFF60A5FA))
+        menuBtn(h * 0.77f, h * 0.08f, "记录 / 设置", Color(0xFFA78BFA))
     } else {
-        menuBtn(h * 0.28f, h * 0.10f, "开始冒险", Color(0xFF4ADE80))
-        menuBtn(h * 0.40f, h * 0.09f, "切换角色", Color(0xFF38BDF8))
-        menuBtn(h * 0.51f, h * 0.09f, "装备图鉴 $known/$total", Color(0xFFFBBF24))
-        menuBtn(h * 0.62f, h * 0.09f, "操作说明", Color(0xFF60A5FA))
-        menuBtn(h * 0.73f, h * 0.09f, "记录 / 设置", Color(0xFFA78BFA))
+        menuBtn(h * 0.30f, h * 0.10f, "开始冒险", Color(0xFF4ADE80))
+        menuBtn(h * 0.42f, h * 0.09f, "切换角色", Color(0xFF38BDF8))
+        menuBtn(h * 0.53f, h * 0.09f, "装备图鉴 $known/$total", Color(0xFFFBBF24))
+        menuBtn(h * 0.64f, h * 0.09f, "操作说明", Color(0xFF60A5FA))
+        menuBtn(h * 0.75f, h * 0.09f, "记录 / 设置", Color(0xFFA78BFA))
     }
-    // 今日画题入口（固定日种子，可攀比）
+    // 今日毒株入口（固定日种子，可攀比）
     drawInkButton(w * 0.06f, h * 0.78f, w * 0.34f, h * 0.09f, Color(0xFF9F1239))
-    title(tm, "今日画题", w * 0.23f, h * 0.795f, Color(0xFFF5EBD4), 13.sp)
+    title(tm, "今日毒株", w * 0.23f, h * 0.795f, Color(0xFFF5EBD4), 13.sp)
     title(tm, dailyInkTitle(), w * 0.23f, h * 0.835f, Color(0xFFFECACA), 8.sp)
     title(
         tm,
@@ -1903,15 +2661,15 @@ private fun DrawScope.drawHowTo(tm: TextMeasurer, w: Float, h: Float) {
     title(tm, "怎么玩", w * 0.5f, h * 0.055f, Color(0xFFF5EBD4), 24.sp)
     drawParchmentPanel(w * 0.06f, h * 0.14f, w * 0.88f, h * 0.62f)
     val lines = listOf(
-        "1. 本机登录 → 创建角色 → 选墨阶出征",
-        "2. 五章画卷：春山→秋壑→雪夜→墨海→奇峰",
-        "3. 地图分叉看关型买克制装；发光点可走，详情报看底部",
-        "4. 战斗：左摇杆 · 右技能；武/甲/戒/鞋四槽养成",
-        "5. 通关抬升墨阶：敌人更强、掉落更丰，专为反复玩",
-        "6. 每局种子不同：支线事件/数值微调，地图不全一样",
+        "1. 创建免疫战士 → 选择毒株代次与免疫记忆",
+        "2. 五器官路线：皮肤→肺部→胃肠→肝脏→心脏",
+        "3. 地图分叉看关型与试炼目标；按五行提示换克制装备",
+        "4. 战斗：左摇杆 · 右技能；先击破带疗/鼓/卫徽记的战术怪",
+        "5. 清除五个器官后病毒进入下一代；装备与等级重置",
+        "6. 免疫记忆永久保留；每轮只带一种，开局前可切换",
         "7. 五行：火克金·金克木·木克土·土克水·水克火",
-        "8. 新冒险需确认；广告药本局限2次",
-        "目标：落款五章 · 冲高墨阶 · 集齐套装流派"
+        "8. 免疫核心可重复升阶，会改变冲锋/冰环/毒雾等技能机制",
+        "目标：净化五器官 · 重构装备与技能 · 挑战更高变异代"
     )
     lines.forEachIndexed { i, s ->
         title(tm, s, w * 0.5f, h * 0.16f + i * h * 0.055f, Color(0xFF2C1810), 12.sp)
@@ -1926,31 +2684,43 @@ private fun DrawScope.drawHowTo(tm: TextMeasurer, w: Float, h: Float) {
 private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: TextMeasurer, w: Float, h: Float) {
     drawInkPaperBackdrop(w, h, meta.pulse, progress.preferredInkRank)
     val (known, total) = progress.collectionProgress()
-    drawInkWoodBar(w * 0.2f, h * 0.008f, w * 0.6f, h * 0.05f, 10f)
-    title(tm, "图鉴", w * 0.5f, h * 0.015f, Color(0xFFF5EBD4), 16.sp)
-    title(tm, "亮色=已获得 · 灰暗=未获得  ·  收集 $known/$total", w * 0.5f, h * 0.055f, Color(0xFF5C4033), 10.sp)
+    drawInkWoodBar(w * 0.2f, h * 0.008f, w * 0.6f, h * 0.045f, 10f)
+    var codexHeaderY = h * 0.008f
+    fun codexHeaderLine(text: String, color: Color, size: TextUnit, gap: Float = h * 0.002f) {
+        val shown = GameI18n.tr(text)
+        val layout = tm.measure(shown, TextStyle(color = color, fontSize = size, fontWeight = FontWeight.Bold))
+        drawText(layout, topLeft = Offset(w * 0.5f - layout.size.width / 2f, codexHeaderY))
+        codexHeaderY += layout.size.height + gap
+    }
+    codexHeaderLine("图鉴", Color(0xFFF5EBD4), 16.sp)
+    codexHeaderLine("亮色=已获得 · 灰暗=未获得  ·  收集 $known/$total", Color(0xFF5C4033), 10.sp, 0f)
 
-    val tabs = listOf("武器", "防具", "戒指", "鞋子", "套装", "技能")
-    val tabW = w * 0.11f
+    val tabs = listOf("武器", "防具", "戒指", "鞋子", "套装")
+    val tabW = w * 0.125f
     tabs.forEachIndexed { i, t ->
         val x0 = w * 0.02f + i * (tabW + w * 0.01f)
         val on = meta.codexTab == i
-        drawRoundRect(if (on) Color(0xFFD97706) else Color(0xFF1E293B), Offset(x0, h * 0.065f), Size(tabW, h * 0.06f), CornerRadius(8f))
-        title(tm, t, x0 + tabW * 0.5f, h * 0.078f, Color.White, 11.sp)
+        drawRoundRect(if (on) Color(0xFFD97706) else Color(0xFF1E293B), Offset(x0, h * 0.105f), Size(tabW, h * 0.06f), CornerRadius(8f))
+        title(tm, t, x0 + tabW * 0.5f, h * 0.118f, Color.White, 11.sp)
     }
-    HeroClass.entries.forEachIndexed { i, hc ->
-        val x0 = w * 0.70f + i * w * 0.09f
-        val on = meta.codexHeroIndex == i
-        drawRoundRect(if (on) hc.color.copy(alpha = 0.55f) else Color(0xFF1E293B), Offset(x0, h * 0.065f), Size(w * 0.085f, h * 0.06f), CornerRadius(8f))
-        title(tm, hc.displayName, x0 + w * 0.042f, h * 0.078f, if (on) Color.White else Color(0xFF94A3B8), 11.sp)
+    // 职业筛选只出现在有职业专属内容的 tab（武器/防具/套装）；戒指鞋子全通用
+    if (meta.codexTab in listOf(0, 1, 4)) {
+        HeroClass.entries.forEachIndexed { i, hc ->
+            val x0 = w * 0.70f + i * w * 0.09f
+            val on = meta.codexHeroIndex == i
+            drawRoundRect(if (on) hc.color.copy(alpha = 0.55f) else Color(0xFF1E293B), Offset(x0, h * 0.105f), Size(w * 0.085f, h * 0.06f), CornerRadius(8f))
+            title(tm, GameI18n.tr(hc.displayName), x0 + w * 0.042f, h * 0.118f, if (on) Color.White else Color(0xFF94A3B8), 11.sp)
+        }
+    } else {
+        title(tm, GameI18n.tr("全部职业通用"), w * 0.745f, h * 0.118f, Color(0xFF94A3B8), 10.sp)
     }
 
     val hero = HeroClass.entries[meta.codexHeroIndex.coerceIn(0, 2)]
     val pulse = meta.pulse
-    drawRoundRect(Color(0xCC0F172A), Offset(w * 0.02f, h * 0.14f), Size(w * 0.40f, h * 0.73f), CornerRadius(12f))
+    drawRoundRect(Color(0xCC0F172A), Offset(w * 0.02f, h * 0.18f), Size(w * 0.40f, h * 0.70f), CornerRadius(12f))
     drawRoundRect(
         Brush.verticalGradient(listOf(Color(0xEE1E293B), Color(0xEE0F172A))),
-        Offset(w * 0.44f, h * 0.14f), Size(w * 0.54f, h * 0.73f), CornerRadius(14f)
+        Offset(w * 0.44f, h * 0.18f), Size(w * 0.54f, h * 0.70f), CornerRadius(14f)
     )
 
     fun listBg(owned: Boolean, on: Boolean) = when {
@@ -1966,14 +2736,18 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
     when (meta.codexTab) {
         0 -> {
             val list = WeaponCatalog.all.filter { it.hero == hero || it.hero == null }
-                .sortedWith(compareBy({ it.tierLevel() }, { it.cost }))
+                .sortedWith(compareBy<GearWeapon>({ !progress.isWeaponKnown(it.id) }, { -it.tierLevel() }, { -it.cost }))
             val sel = meta.codexSelectedId.ifEmpty { list.firstOrNull()?.id.orEmpty() }
             list.take(8).forEachIndexed { i, wp ->
-                val y0 = h * 0.16f + i * h * 0.085f
+                val y0 = h * 0.20f + i * h * 0.085f
                 val owned = progress.isWeaponKnown(wp.id)
                 val on = wp.id == sel
                 drawRoundRect(listBg(owned, on), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f))
                 drawRoundRect(if (on) Color(0xFFFBBF24) else if (owned) wp.element.color else Color(0xFF475569), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f), style = Stroke(if (on) 3f else 1.2f))
+                // 职业专属：左侧职业色竖条（通用装备无）
+                wp.hero?.let { hc ->
+                    drawRoundRect(hc.color, Offset(w * 0.033f, y0 + h * 0.012f), Size(w * 0.006f, h * 0.054f), CornerRadius(2f))
+                }
                 if (owned) drawWeaponArt(w * 0.07f, y0 + h * 0.038f, h * 0.028f, wp, pulse)
                 else drawCircle(Color(0xFF334155), h * 0.022f, Offset(w * 0.07f, y0 + h * 0.038f))
                 title(tm, if (owned) "${wp.tierLabel()} ${wp.name}" else "${wp.tierLabel()} ？？？", w * 0.22f, y0 + h * 0.01f, if (owned) Color.White else Color(0xFF64748B), 11.sp)
@@ -2000,14 +2774,18 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
             }
         }
         1 -> {
-            val list = ArmorCatalog.all.filter { it.hero == hero || it.hero == null }.sortedWith(compareBy({ it.tier }, { it.cost }))
+            val list = ArmorCatalog.all.filter { it.hero == hero || it.hero == null }
+                .sortedWith(compareBy<GearArmor>({ !progress.isArmorKnown(it.id) }, { -it.tier }, { -it.cost }))
             val sel = meta.codexSelectedId.ifEmpty { list.firstOrNull()?.id.orEmpty() }
             list.take(8).forEachIndexed { i, ar ->
-                val y0 = h * 0.16f + i * h * 0.085f
+                val y0 = h * 0.20f + i * h * 0.085f
                 val owned = progress.isArmorKnown(ar.id)
                 val on = ar.id == sel
                 drawRoundRect(listBg(owned, on), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f))
                 drawRoundRect(if (on) Color(0xFFFBBF24) else if (owned) Color(0xFF86EFAC) else Color(0xFF475569), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f), style = Stroke(if (on) 3f else 1.2f))
+                ar.hero?.let { hc ->
+                    drawRoundRect(hc.color, Offset(w * 0.033f, y0 + h * 0.012f), Size(w * 0.006f, h * 0.054f), CornerRadius(2f))
+                }
                 if (owned) drawArmorArt(w * 0.07f, y0 + h * 0.038f, h * 0.028f, ar, pulse)
                 title(tm, if (owned) "${ar.tierLabel()} ${ar.name}" else "${ar.tierLabel()} ？？？", w * 0.22f, y0 + h * 0.015f, if (owned) Color.White else Color(0xFF64748B), 11.sp)
                 title(tm, if (owned) ar.statsCompact().take(14) else "未获得·防具", w * 0.22f, y0 + h * 0.045f, if (owned) Color(0xFF86EFAC) else Color(0xFF475569), 9.sp)
@@ -2026,9 +2804,10 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
         }
         2 -> {
             val list = RingCatalog.all.filter { it.canEquip(hero) }
+                .sortedWith(compareBy<GearAccessory>({ !progress.isRingKnown(it.id) }, { -it.tier }, { -it.cost }))
             val sel = meta.codexSelectedId.ifEmpty { list.firstOrNull()?.id.orEmpty() }
             list.take(8).forEachIndexed { i, r ->
-                val y0 = h * 0.16f + i * h * 0.085f
+                val y0 = h * 0.20f + i * h * 0.085f
                 val owned = progress.isRingKnown(r.id)
                 val on = r.id == sel
                 drawRoundRect(listBg(owned, on), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f))
@@ -2051,9 +2830,10 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
         }
         3 -> {
             val list = BootsCatalog.all.filter { it.canEquip(hero) }
+                .sortedWith(compareBy<GearAccessory>({ !progress.isBootsKnown(it.id) }, { -it.tier }, { -it.cost }))
             val sel = meta.codexSelectedId.ifEmpty { list.firstOrNull()?.id.orEmpty() }
             list.take(8).forEachIndexed { i, b ->
-                val y0 = h * 0.16f + i * h * 0.085f
+                val y0 = h * 0.20f + i * h * 0.085f
                 val owned = progress.isBootsKnown(b.id)
                 val on = b.id == sel
                 drawRoundRect(listBg(owned, on), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f))
@@ -2078,7 +2858,7 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
             val sets = SetCatalog.forHero(hero)
             val sel = meta.codexSelectedId.ifEmpty { sets.firstOrNull()?.id.orEmpty() }
             sets.forEachIndexed { i, set ->
-                val y0 = h * 0.16f + i * h * 0.12f
+                val y0 = h * 0.20f + i * h * 0.12f
                 val on = set.id == sel
                 val anyOwned = set.weaponIds.any { progress.isWeaponKnown(it) } || set.armorIds.any { progress.isArmorKnown(it) }
                 drawRoundRect(listBg(anyOwned, on), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.11f), CornerRadius(10f))
@@ -2088,54 +2868,55 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
             }
             val set = SetCatalog.byId(sel) ?: sets.firstOrNull()
             if (set != null) {
-                drawSetAura(previewCx, previewCy, previewS * 0.5f, set, pulse)
-                drawCuteHero(previewCx, previewCy, previewS * 0.4f, 1f, SkinCatalog.defaultFor(hero), bob = sin(pulse * 3f) * 2f)
-                title(tm, set.name, previewCx, h * 0.62f, Color(0xFFFDE68A), 15.sp)
+                // 套装阵容展示：立绘居中，套装武器/防具位图分列左右，光环承托
+                drawSetAura(previewCx, previewCy + previewS * 0.15f, previewS * 0.55f, set, pulse)
+                val portraitH = previewS * 1.1f
+                val drewPortrait = drawHeroPortrait(hero, previewCx, previewCy + previewS * 0.55f, portraitH)
+                if (!drewPortrait) {
+                    drawCuteHero(previewCx, previewCy, previewS * 0.4f, 1f, SkinCatalog.defaultFor(hero), bob = sin(pulse * 3f) * 2f)
+                }
+                set.weaponIds.firstOrNull()?.let { wid ->
+                    WeaponCatalog.byId(wid)?.let { gw ->
+                        drawWeaponArt(previewCx - previewS * 0.85f, previewCy + previewS * 0.05f, previewS * 0.5f, gw, pulse)
+                    }
+                }
+                set.armorIds.firstOrNull()?.let { aid ->
+                    ArmorCatalog.byId(aid)?.let { ga ->
+                        drawArmorArt(previewCx + previewS * 0.85f, previewCy + previewS * 0.1f, previewS * 0.48f, ga, pulse)
+                    }
+                }
+                // 收集进度
+                val pieces = set.weaponIds + set.armorIds
+                val knownPieces = pieces.count {
+                    it in set.weaponIds && progress.isWeaponKnown(it) || it in set.armorIds && progress.isArmorKnown(it)
+                }
+                title(tm, "${set.name} · 收集 $knownPieces/${pieces.size}", previewCx, h * 0.62f, Color(0xFFFDE68A), 15.sp)
                 title(tm, "被动 ${set.bonusTitle}：${set.bonusTip}", previewCx, h * 0.68f, Color(0xFF86EFAC), 12.sp)
                 title(tm, set.piecesLine().take(40), previewCx, h * 0.74f, Color(0xFF94A3B8), 10.sp)
                 title(tm, "特效 ${set.proc.title}", previewCx, h * 0.79f, Color(0xFFFBBF24), 12.sp)
             }
-        }
-        5 -> {
-            // 技能树
-            val skills = skillsFor(hero)
-            val selSlot = meta.codexSelectedId.removePrefix("skill_").ifEmpty { skills.first().slot.name }
-            skills.forEachIndexed { i, sk ->
-                val y0 = h * 0.16f + i * h * 0.12f
-                val on = sk.slot.name == selSlot
-                drawRoundRect(if (on) Color(0xFF1E3A5F) else Color(0xEE1E293B), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.11f), CornerRadius(10f))
-                drawRoundRect(if (on) Color(0xFFFBBF24) else hero.color, Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.11f), CornerRadius(10f), style = Stroke(if (on) 3f else 1.5f))
-                drawCircle(hero.color.copy(alpha = 0.4f), h * 0.03f, Offset(w * 0.08f, y0 + h * 0.055f))
-                title(tm, sk.glyph, w * 0.08f, y0 + h * 0.035f, Color.White, 16.sp)
-                title(tm, "Lv${sk.unlockLevel} ${sk.name}", w * 0.22f, y0 + h * 0.02f, Color.White, 13.sp)
-                title(tm, sk.tip.take(14), w * 0.22f, y0 + h * 0.055f, Color(0xFF94A3B8), 10.sp)
-            }
-            val sk = skills.find { it.slot.name == selSlot } ?: skills.first()
-            // skill tree visual
-            skills.forEachIndexed { i, s ->
-                val sx = w * 0.55f + i * w * 0.08f
-                val sy = h * 0.35f
-                if (i < skills.lastIndex) drawLine(Color(0x66FBBF24), Offset(sx, sy), Offset(sx + w * 0.08f, sy), 3f)
-                val on = s.slot.name == sk.slot.name
-                drawCircle(if (on) hero.color else Color(0xFF334155), if (on) 22f else 16f, Offset(sx, sy))
-                title(tm, s.glyph, sx, sy - 10f, Color.White, 14.sp)
-                title(tm, "Lv${s.unlockLevel}", sx, sy + 18f, Color(0xFF94A3B8), 9.sp)
-            }
-            title(tm, sk.name, previewCx, h * 0.55f, Color.White, 18.sp)
-            title(tm, "解锁等级 Lv${sk.unlockLevel} · 槽位 ${sk.slot.name}", previewCx, h * 0.60f, Color(0xFFFBBF24), 12.sp)
-            title(tm, "冷却 ${sk.cd}s · 耗蓝 ${sk.mp.toInt()}", previewCx, h * 0.65f, Color(0xFF7DD3FC), 12.sp)
-            title(tm, sk.tip, previewCx, h * 0.71f, Color(0xFFE2E8F0), 13.sp)
-            title(tm, "战斗中达到对应等级自动学会", previewCx, h * 0.78f, Color(0xFF94A3B8), 11.sp)
         }
     }
     drawRoundRect(Color(0xFF334155), Offset(w * 0.3f, h * 0.91f), Size(w * 0.4f, h * 0.07f), CornerRadius(12f))
     title(tm, "返回标题", w * 0.5f, h * 0.925f, Color.White, 14.sp)
 }
 
-private fun DrawScope.drawSettings(tm: TextMeasurer, w: Float, h: Float, progress: ProgressStore) {
+private fun DrawScope.drawSettings(
+    tm: TextMeasurer,
+    w: Float,
+    h: Float,
+    progress: ProgressStore,
+    privacyMessage: String
+) {
     drawInkPaperBackdrop(w, h, 0f, progress.preferredInkRank)
     drawInkWoodBar(w * 0.18f, h * 0.04f, w * 0.64f, h * 0.08f)
     title(tm, "记录 / 设置", w * 0.5f, h * 0.055f, Color(0xFFF5EBD4), 22.sp)
+    drawInkButton(w * 0.82f, h * 0.03f, w * 0.16f, h * 0.08f, Color(0xFF0F766E), 10f)
+    title(
+        tm,
+        if (GameI18n.language == GameLanguage.CHINESE) "日本語" else "中文",
+        w * 0.90f, h * 0.052f, Color(0xFFF5EBD4), 12.sp
+    )
     drawParchmentPanel(w * 0.1f, h * 0.14f, w * 0.8f, h * 0.22f)
     title(tm, "出征 ${progress.runsStarted}  通关 ${progress.runsWon}  最高章 ${progress.bestStage}", w * 0.5f, h * 0.155f, Color(0xFF2C1810), 13.sp)
     title(tm, "累计金 ${progress.lifetimeGold}  击杀 ${progress.lifetimeKills}", w * 0.5f, h * 0.205f, Color(0xFFB45309), 13.sp)
@@ -2159,25 +2940,43 @@ private fun DrawScope.drawSettings(tm: TextMeasurer, w: Float, h: Float, progres
     }
     toggle(h * 0.40f, "音效", progress.soundOn)
     toggle(h * 0.50f, "战斗震动", progress.hapticsOn)
-    title(tm, "广告：结算双倍金 · 广告药本局≤2 · 正式ID请自配", w * 0.5f, h * 0.595f, Color(0xFF78716C), 10.sp)
-    title(tm, "崩溃报告已落盘(Play Vitals 自动采集) · v$APP_VERSION", w * 0.5f, h * 0.635f, Color(0xFF78716C), 9.sp)
-    drawInkButton(w * 0.2f, h * 0.66f, w * 0.6f, h * 0.08f, Color(0xFFB91C1C))
-    title(tm, "退出登录", w * 0.5f, h * 0.68f, Color(0xFFFECACA), 15.sp)
-    drawInkButton(w * 0.2f, h * 0.80f, w * 0.6f, 56f, Color(0xFF78716C))
-    title(tm, "返回标题", w * 0.5f, h * 0.815f, Color(0xFFF5EBD4), 16.sp)
+    drawInkButton(w * 0.15f, h * 0.59f, w * 0.33f, h * 0.08f, Color(0xFF475569))
+    title(tm, "隐私政策", w * 0.315f, h * 0.61f, Color(0xFFF5EBD4), 13.sp)
+    drawInkButton(w * 0.52f, h * 0.59f, w * 0.33f, h * 0.08f, Color(0xFF475569))
+    title(tm, "广告隐私选项", w * 0.685f, h * 0.61f, Color(0xFFF5EBD4), 13.sp)
+    val privacyLine = privacyMessage.ifBlank {
+        "广告仅在同意状态允许时加载 · ${if (AdConfig.useTestAds) "测试广告" else "正式广告"}"
+    }
+    title(tm, privacyLine.take(36), w * 0.5f, h * 0.68f, Color(0xFF78716C), 9.sp)
+    drawInkButton(w * 0.2f, h * 0.72f, w * 0.6f, h * 0.08f, Color(0xFFB91C1C))
+    title(tm, "退出登录", w * 0.5f, h * 0.74f, Color(0xFFFECACA), 15.sp)
+    title(tm, "本地崩溃记录 · Play Vitals · v${BuildConfig.VERSION_NAME}", w * 0.5f, h * 0.82f, Color(0xFF78716C), 9.sp)
+    drawInkButton(w * 0.2f, h * 0.86f, w * 0.6f, h * 0.09f, Color(0xFF78716C))
+    title(tm, "返回标题", w * 0.5f, h * 0.88f, Color(0xFFF5EBD4), 16.sp)
 }
 
 private fun DrawScope.drawResult(meta: RunMeta, tm: TextMeasurer, w: Float, h: Float, progress: ProgressStore) {
     drawInkPaperBackdrop(w, h, meta.pulse, meta.stage().chapterIndex)
     drawInkWoodBar(w * 0.12f, h * 0.05f, w * 0.76f, h * 0.1f)
-    val titleCol = if (meta.resultTitle.contains("成功")) Color(0xFFBBF7D0) else Color(0xFFFECACA)
+    val cycleCleared = meta.resultTitle.contains("成功") || meta.resultTitle.contains("清除")
+    val titleCol = if (cycleCleared) Color(0xFFBBF7D0) else Color(0xFFFECACA)
     title(tm, meta.resultTitle, w * 0.5f, h * 0.07f, titleCol, 24.sp)
     drawParchmentPanel(w * 0.1f, h * 0.18f, w * 0.8f, h * 0.36f)
     meta.resultBody.lines().take(6).forEachIndexed { i, line ->
         val c = if (line.contains("已写入本地")) Color(0xFF3F6212) else Color(0xFF2C1810)
         title(tm, line, w * 0.5f, h * 0.20f + i * h * 0.045f, c, 13.sp)
     }
-    title(tm, "生涯击杀 ${progress.lifetimeKills} · 通关 ${progress.runsWon} · 最佳章 ${progress.bestStage}", w * 0.5f, h * 0.56f, Color(0xFF5C4033), 12.sp)
+    title(
+        tm,
+        "生涯清除 ${progress.lifetimeKills} · 周期完成 ${progress.runsWon} · 变异代 ${progress.preferredInkRank}/${progress.inkRankUnlocked}",
+        w * 0.5f, h * 0.555f, Color(0xFF5C4033), 11.sp
+    )
+    if (cycleCleared) {
+        title(
+            tm, "下一代已开启：新感染特征 · 新免疫记忆 · 重构装备",
+            w * 0.5f, h * 0.585f, Color(0xFF3F6212), 10.sp
+        )
+    }
     if (!meta.adDoubleClaimed && meta.goldEarnedThisRun > 0) {
         drawInkButton(w * 0.18f, h * 0.60f, w * 0.64f, h * 0.11f, Color(0xFFB45309))
         title(tm, "看广告 · 双倍本局金币(+${meta.goldEarnedThisRun})", w * 0.5f, h * 0.63f, Color(0xFFF5EBD4), 15.sp)
@@ -2254,17 +3053,23 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
     meta.ensureVitals()
 
     // ── 极简顶栏：章名 + 数值 + 三个动作印 ──
-    drawInkWoodBar(6f, h * 0.01f, w - 12f, h * 0.095f, 10f)
+    drawInkWoodBar(6f, h * 0.01f, w - 12f, h * 0.105f, 10f)
     val ch = StoryBook.chapters.getOrNull(stage.chapterIndex)
-    val inkTag = if (meta.inkRank > 0) " 墨${meta.inkRank}" else ""
-    title(tm, (ch?.title ?: stage.title) + inkTag, w * 0.22f, h * 0.025f, Color(0xFFF5EBD4), 14.sp)
-    title(
-        tm,
+    val inkTag = if (meta.inkRank > 0) " 变异${meta.inkRank}" else ""
+    var statusY = h * 0.014f
+    fun statusLine(text: String, color: Color, size: TextUnit, gap: Float = h * 0.001f) {
+        val shown = GameI18n.tr(text)
+        val layout = tm.measure(shown, TextStyle(color = color, fontSize = size, fontWeight = FontWeight.Bold))
+        drawText(layout, topLeft = Offset(w * 0.22f - layout.size.width / 2f, statusY))
+        statusY += layout.size.height + gap
+    }
+    statusLine((ch?.title ?: stage.title) + inkTag, Color(0xFFF5EBD4), 13.sp)
+    statusLine(
         "Lv${meta.level}  金${meta.gold}  药${meta.potions}  ${meta.curHp.toInt()}/${meta.maxHp().toInt()}",
-        w * 0.22f, h * 0.055f, Color(0xFFE7C98A), 11.sp
+        Color(0xFFE7C98A), 9.sp
     )
     val aff = meta.affixHudLine()
-    if (aff.isNotEmpty()) title(tm, aff, w * 0.22f, h * 0.078f, Color(0xFFD6BC9A), 8.sp)
+    if (aff.isNotEmpty()) statusLine(aff, Color(0xFFD6BC9A), 7.sp, 0f)
     // 三印：装 / 商 / 药（广告药并入商旁长按不需要，改为第四小印）
     fun seal(x: Float, text: String, accent: Color) {
         drawRoundRect(Color(0xEE1C1410), Offset(x, h * 0.022f), Size(w * 0.09f, h * 0.07f), CornerRadius(8f))
@@ -2293,7 +3098,7 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
             val b = nodeCenter(bNode, w, h)
             val visited = n.id in meta.visited && bNode.id in meta.visited
             val active = n.id == meta.nodeId || bNode.id in nextIds
-            drawInkPathStroke(a, b, active, visited)
+            drawInkPathStroke(a, b, active, visited, stage.chapterIndex)
         }
     }
     val nodeRadii = HashMap<Int, Float>(stage.nodes.size)
@@ -2308,7 +3113,7 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
             else -> 12f
         }
         nodeRadii[n.id] = r
-        drawInkNodeIcon(c, r, n.type, el, isNext || isHere, pulseN)
+        drawInkNodeIcon(c, r, n.type, el, isNext || isHere, pulseN, stage.chapterIndex)
         if (n.id in meta.visited && !isHere && !isNext) {
             drawCircle(Color(0xFF4D7C0F), 3f, Offset(c.x + r * 0.5f, c.y - r * 0.5f))
         }
@@ -2318,7 +3123,7 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
         val c = nodeCenter(it, w, h)
         val r = (nodeRadii[it.id] ?: 16f) + 5f + 2f * pulseN
         drawCircle(Color(0xAAB91C1C), r, c, style = Stroke(2.2f))
-        drawInkHero(c.x, c.y - 2f, 9f, 1f, meta.skin())
+        drawInkHero(c.x, c.y - 2f, 9f, 1f, meta.skin(), hero = meta.hero)
     }
     nextList.forEach { n ->
         val c = nodeCenter(n, w, h)
@@ -2364,7 +3169,9 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
                 else -> "·"
             }
             val rec = el?.let { "荐${it.beatenBy().short}" } ?: nodeRiskHint(n).take(6)
-            title(tm, "$kind  $rec", x0 + btnW * 0.5f, btnTop + btnH * 0.55f, Color(0xFF5C4033), 11.sp)
+            val trial = roomTrialFor(meta.runSeed, meta.stageIndex, n)
+            val routeLine = if (trial != null) "$kind $rec·${trial.title}" else "$kind  $rec"
+            title(tm, routeLine, x0 + btnW * 0.5f, btnTop + btnH * 0.55f, Color(0xFF5C4033), 10.sp)
         }
     }
     val footY = h * 0.91f
@@ -2420,6 +3227,90 @@ private fun DrawScope.drawLevelUp(meta: RunMeta, tm: TextMeasurer, w: Float, h: 
     }
 }
 
+private fun DrawScope.drawCoreInkChoice(meta: RunMeta, tm: TextMeasurer, w: Float, h: Float) {
+    drawInkPaperBackdrop(w, h, meta.pulse, meta.stage().chapterIndex)
+    drawInkWoodBar(w * 0.16f, h * 0.055f, w * 0.68f, h * 0.105f)
+    title(tm, "感染核心击破 · 免疫核心三选一", w * 0.5f, h * 0.078f, Color(0xFFF5EBD4), 23.sp)
+    title(tm, "免疫核心会改变技能机制，同一路线可升至五阶", w * 0.5f, h * 0.19f, Color(0xFF5C4033), 13.sp)
+    meta.coreInkChoices.forEachIndexed { i, ink ->
+        val y = h * 0.30f + i * h * 0.17f
+        val current = meta.coreInkRanks.rankOf(ink)
+        val next = (current + 1).coerceAtMost(5)
+        val accent = Color(ink.color)
+        drawParchmentPanel(w * 0.08f, y, w * 0.84f, h * 0.145f, radius = 16f, strokeCol = accent.copy(alpha = 0.82f))
+        drawCircle(Color(0xDD1C1917), h * 0.038f, Offset(w * 0.155f, y + h * 0.070f))
+        drawCircle(accent, h * 0.038f, Offset(w * 0.155f, y + h * 0.070f), style = Stroke(3f))
+        title(tm, ink.glyph, w * 0.155f, y + h * 0.056f, Color.White, 19.sp)
+        title(tm, ink.title, w * 0.52f, y + h * 0.024f, accent, 17.sp)
+        title(
+            tm,
+            if (current == 0) "未获得 → 一阶" else "$current 阶 → $next 阶",
+            w * 0.85f, y + h * 0.028f, Color(0xFF78716C), 11.sp
+        )
+        title(tm, "改造「${ink.skillName}」", w * 0.52f, y + h * 0.061f, Color(0xFF3F6212), 12.sp)
+        ink.desc.chunked(23).take(2).forEachIndexed { line, text ->
+            title(tm, text, w * 0.52f, y + h * (0.092f + line * 0.025f), Color(0xFF3F3F46), 10.sp)
+        }
+    }
+    val owned = meta.coreInkRanks.entries.filter { it.value > 0 }
+    if (owned.isNotEmpty()) {
+        title(
+            tm,
+            "已有：${owned.joinToString(" · ") { "${it.key.glyph}${it.value}" }}",
+            w * 0.5f, h * 0.86f, Color(0xFF5C4033), 12.sp
+        )
+    }
+}
+
+private fun DrawScope.drawSetAwakenedOverlay(meta: RunMeta, tm: TextMeasurer, w: Float, h: Float) {
+    val set = SetCatalog.byId(meta.setAwakenedId) ?: return
+    val remaining = (meta.setAwakenedT / 3.2f).coerceIn(0f, 1f)
+    val progress = 1f - remaining
+    val alpha = min((progress / 0.12f).coerceIn(0f, 1f), (remaining / 0.18f).coerceIn(0f, 1f))
+    val accent = Color(set.proc.fxColor())
+    val cx = w * 0.5f
+    val cy = h * 0.48f
+    val burst = 0.82f + sin(progress * 18f) * 0.04f
+
+    drawRect(Color(0xCC09090B).copy(alpha = 0.72f * alpha), size = Size(w, h))
+    drawCircle(
+        Brush.radialGradient(
+            listOf(accent.copy(alpha = 0.32f * alpha), Color.Transparent),
+            center = Offset(cx, cy), radius = min(w, h) * 0.42f
+        ),
+        min(w, h) * 0.42f,
+        Offset(cx, cy)
+    )
+    repeat(16) { index ->
+        val angle = index * (6.28318f / 16f) + progress * 0.35f
+        val inner = min(w, h) * 0.13f
+        val outer = min(w, h) * (0.31f + 0.025f * sin(index * 2.1f + progress * 9f))
+        drawLine(
+            accent.copy(alpha = 0.48f * alpha),
+            Offset(cx + cos(angle) * inner, cy + sin(angle) * inner),
+            Offset(cx + cos(angle) * outer, cy + sin(angle) * outer),
+            if (index % 2 == 0) 4f else 2f,
+            StrokeCap.Round
+        )
+    }
+    drawParchmentPanel(w * 0.17f, h * 0.18f, w * 0.66f, h * 0.60f, radius = 22f, strokeCol = accent.copy(alpha = alpha))
+    drawCircle(accent.copy(alpha = 0.18f * alpha), min(w, h) * 0.13f * burst, Offset(cx, cy))
+    drawSetAura(cx, cy, min(w, h) * 0.075f, set, meta.pulse * 1.6f)
+    drawCuteHero(cx, cy, min(w, h) * 0.07f, 1f, meta.skin(), bob = sin(meta.pulse * 5f) * 2f)
+
+    val weapon = meta.equippedWeapon().takeIf { it.id in set.weaponIds }
+        ?: set.weaponIds.firstNotNullOfOrNull { WeaponCatalog.byId(it) }
+    val armor = meta.equippedArmor().takeIf { it.id in set.armorIds }
+        ?: set.armorIds.firstNotNullOfOrNull { ArmorCatalog.byId(it) }
+    weapon?.let { drawWeaponArt(cx - w * 0.17f, cy, min(w, h) * 0.095f, it, meta.pulse) }
+    armor?.let { drawArmorArt(cx + w * 0.17f, cy, min(w, h) * 0.095f, it, meta.pulse) }
+
+    title(tm, "套装觉醒", cx, h * 0.23f, Color(0xFFF5EBD4).copy(alpha = alpha), 18.sp)
+    title(tm, set.name, cx, h * 0.30f, accent.copy(alpha = alpha), 28.sp)
+    title(tm, "${set.bonusTitle} · ${set.bonusTip}", cx, h * 0.63f, Color(0xFF3F3F46).copy(alpha = alpha), 14.sp)
+    title(tm, "特效「${set.proc.title}」已激活", cx, h * 0.69f, accent.copy(alpha = alpha), 13.sp)
+}
+
 
 /** 商店货架扁平条目（绘制与点击共用） */
 private data class ShopOffer(
@@ -2463,6 +3354,70 @@ private fun buildShopOffers(meta: RunMeta): List<ShopOffer> {
     return list
 }
 
+private fun DrawScope.drawEquipmentIcon(
+    kind: String,
+    id: String,
+    cx: Float,
+    cy: Float,
+    size: Float,
+    pulse: Float
+) {
+    when (kind) {
+        "w" -> WeaponCatalog.byId(id)?.let { drawWeaponArt(cx, cy, size, it, pulse) }
+        "a" -> ArmorCatalog.byId(id)?.let { drawArmorArt(cx, cy, size, it, pulse) }
+        "r" -> RingCatalog.byId(id)?.let { drawAccessoryArt(cx, cy, size, it, pulse) }
+        "b" -> BootsCatalog.byId(id)?.let { drawAccessoryArt(cx, cy, size, it, pulse) }
+        "f" -> {
+            val color = ItemCatalog.byId(id)?.element?.color ?: Color(0xFFFDA4AF)
+            drawCircle(color.copy(alpha = 0.2f), size * 0.8f, Offset(cx, cy))
+            // 果实：珠体 + 叶
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(lerp(color, Color.White, 0.55f), color, lerp(color, Color.Black, 0.4f)),
+                    center = Offset(cx - size * 0.1f, cy - size * 0.1f), radius = size * 0.6f
+                ),
+                size * 0.42f, Offset(cx, cy)
+            )
+            drawCircle(Color(0x550F172A), size * 0.42f, Offset(cx, cy), style = Stroke(1f))
+            drawLine(Color(0xFF4D7C0F), Offset(cx, cy - size * 0.4f), Offset(cx, cy - size * 0.52f), 1.8f, StrokeCap.Round)
+            val leaf = Path().apply {
+                moveTo(cx, cy - size * 0.48f)
+                quadraticTo(cx + size * 0.22f, cy - size * 0.6f, cx + size * 0.28f, cy - size * 0.5f)
+                quadraticTo(cx + size * 0.14f, cy - size * 0.4f, cx, cy - size * 0.48f)
+                close()
+            }
+            drawPath(leaf, Color(0xFF4ADE80))
+            drawCircle(Color.White.copy(alpha = 0.7f), size * 0.08f, Offset(cx - size * 0.14f, cy - size * 0.14f))
+        }
+        "tome" -> {
+            // 卷轴：卷筒 + 纸面 + 朱印
+            drawCircle(Color(0xFF7C3AED).copy(alpha = 0.15f), size * 0.8f, Offset(cx, cy))
+            drawRoundRect(
+                Brush.verticalGradient(listOf(Color(0xFFA78BFA), Color(0xFF6D28D9))),
+                Offset(cx - size * 0.36f, cy - size * 0.4f), Size(size * 0.72f, size * 0.8f), CornerRadius(size * 0.06f)
+            )
+            drawRoundRect(Color(0xFF2E1065), Offset(cx - size * 0.36f, cy - size * 0.4f), Size(size * 0.72f, size * 0.8f), CornerRadius(size * 0.06f), style = Stroke(1.2f))
+            // 纸面
+            drawRoundRect(
+                Brush.verticalGradient(listOf(Color(0xFFFEF9E7), Color(0xFFEDE0BE))),
+                Offset(cx - size * 0.26f, cy - size * 0.3f), Size(size * 0.52f, size * 0.6f), CornerRadius(3f)
+            )
+            for (i in 0..2) {
+                drawLine(Color(0xFF92765A), Offset(cx - size * 0.18f, cy - size * 0.16f + i * size * 0.13f), Offset(cx + size * 0.18f, cy - size * 0.16f + i * size * 0.13f), 1.5f)
+            }
+            // 朱印
+            drawCircle(Color(0xFFDC2626), size * 0.09f, Offset(cx + size * 0.16f, cy + size * 0.2f))
+            // 卷筒头
+            drawRoundRect(Color(0xFFFBBF24), Offset(cx - size * 0.4f, cy - size * 0.44f), Size(size * 0.8f, size * 0.09f), CornerRadius(size * 0.045f))
+            drawRoundRect(Color(0xFFFBBF24), Offset(cx - size * 0.4f, cy + size * 0.31f), Size(size * 0.8f, size * 0.09f), CornerRadius(size * 0.045f))
+        }
+        else -> {
+            drawCircle(Color(0xFF4D7C0F), size * 0.5f, Offset(cx, cy))
+            drawCircle(Color(0xFF86EFAC), size * 0.2f, Offset(cx - size * 0.08f, cy - size * 0.08f))
+        }
+    }
+}
+
 private fun DrawScope.drawShop(meta: RunMeta, tm: TextMeasurer, w: Float, h: Float) {
     drawInkPaperBackdrop(w, h, meta.pulse, meta.stage().chapterIndex)
     drawInkWoodBar(8f, h * 0.012f, w - 16f, h * 0.10f, 12f)
@@ -2500,13 +3455,14 @@ private fun DrawScope.drawShop(meta: RunMeta, tm: TextMeasurer, w: Float, h: Flo
                 "w" -> "武"; "a" -> "甲"; "r" -> "戒"; "b" -> "鞋"; "f" -> "果"; "tome" -> "卷"; else -> "物"
             }
         }
-        title(tm, "$tag  ${o.name}", x + cellW * 0.5f, y + cellH * 0.18f, Color(0xFF2C1810), 13.sp)
+        drawEquipmentIcon(o.kind, o.id, x + cellW * 0.13f, y + cellH * 0.46f, cellH * 0.34f, meta.pulse)
+        title(tm, "$tag  ${o.name}", x + cellW * 0.58f, y + cellH * 0.18f, Color(0xFF2C1810), 13.sp)
         val price = when {
             o.owned -> "已拥有"
             !can -> "差${o.price - meta.gold}金"
             else -> "${o.price}金 · 点买"
         }
-        title(tm, price, x + cellW * 0.5f, y + cellH * 0.55f, if (can && !o.owned) Color(0xFF3F6212) else Color(0xFF78716C), 11.sp)
+        title(tm, price, x + cellW * 0.58f, y + cellH * 0.55f, if (can && !o.owned) Color(0xFF3F6212) else Color(0xFF78716C), 11.sp)
     }
     drawInkButton(w * 0.08f, h * 0.88f, w * 0.38f, h * 0.08f, Color(0xFF0F766E))
     title(tm, "换装", w * 0.27f, h * 0.90f, Color(0xFFF5EBD4), 15.sp)
@@ -2529,18 +3485,20 @@ private fun DrawScope.drawGear(meta: RunMeta, tm: TextMeasurer, w: Float, h: Flo
     val boots = meta.equippedBoots()
     // 当前穿戴
     val slots = listOf(
-        "武" to eq.name,
-        "甲" to worn.name,
-        "戒" to (ring?.name ?: "无"),
-        "鞋" to boots.name
+        Triple("w", eq.id, eq.name),
+        Triple("a", worn.id, worn.name),
+        Triple("r", ring?.id.orEmpty(), ring?.name ?: "无"),
+        Triple("b", boots.id, boots.name)
     )
-    slots.forEachIndexed { i, (k, v) ->
+    slots.forEachIndexed { i, (kind, id, name) ->
         val x = w * 0.04f + i * w * 0.24f
         drawParchmentPanel(x, h * 0.11f, w * 0.22f, h * 0.12f, radius = 10f)
-        title(tm, k, x + w * 0.11f, h * 0.125f, Color(0xFFB91C1C), 12.sp)
-        title(tm, v.take(6), x + w * 0.11f, h * 0.165f, Color(0xFF2C1810), 12.sp)
+        if (id.isNotEmpty()) drawEquipmentIcon(kind, id, x + w * 0.055f, h * 0.17f, h * 0.046f, pulse)
+        val k = when (kind) { "w" -> "武"; "a" -> "甲"; "r" -> "戒"; else -> "鞋" }
+        title(tm, k, x + w * 0.145f, h * 0.125f, Color(0xFFB91C1C), 12.sp)
+        title(tm, name.take(6), x + w * 0.145f, h * 0.165f, Color(0xFF2C1810), 11.sp)
     }
-    drawInkHero(w * 0.88f, h * 0.17f, h * 0.045f, 1f, meta.skin(), bob = sin(pulse * 2f) * 2f)
+    drawInkHero(w * 0.88f, h * 0.17f, h * 0.045f, 1f, meta.skin(), bob = sin(pulse * 2f) * 2f, hero = meta.hero)
 
     // 单列列表
     data class Row(val kind: String, val id: String, val title: String, val sub: String, val on: Boolean)
@@ -2568,8 +3526,9 @@ private fun DrawScope.drawGear(meta: RunMeta, tm: TextMeasurer, w: Float, h: Flo
             fill = if (row.on) Color(0xEEDAF0C8) else Color(0xEEF5EBD4)
         )
         val kind = when (row.kind) { "w" -> "武"; "a" -> "甲"; "r" -> "戒"; else -> "鞋" }
-        title(tm, if (row.on) "●$kind ${row.title}" else "$kind ${row.title}", w * 0.5f, y + rowH * 0.12f, Color(0xFF2C1810), 14.sp)
-        title(tm, row.sub, w * 0.5f, y + rowH * 0.48f, Color(0xFF5C4033), 11.sp)
+        drawEquipmentIcon(row.kind, row.id, w * 0.13f, y + rowH * 0.40f, rowH * 0.32f, pulse)
+        title(tm, if (row.on) "●$kind ${row.title}" else "$kind ${row.title}", w * 0.53f, y + rowH * 0.12f, Color(0xFF2C1810), 14.sp)
+        title(tm, row.sub, w * 0.53f, y + rowH * 0.48f, Color(0xFF5C4033), 11.sp)
     }
     drawInkButton(w * 0.25f, h * 0.90f, w * 0.5f, h * 0.08f, Color(0xFF5C4033))
     title(tm, "返回地图", w * 0.5f, h * 0.92f, Color(0xFFF5EBD4), 14.sp)
@@ -2593,7 +3552,11 @@ private fun DrawScope.drawArena(
     s1Held: Boolean,
     s2Held: Boolean,
     s3Held: Boolean = false,
-    s4Held: Boolean = false
+    s4Held: Boolean = false,
+    wheelActive: Boolean = false,
+    wheelX: Float = 0f,
+    wheelY: Float = 0f,
+    wheelSlotSel: Int = 0
 ) {
     val viewH = h // landscape: use full height for combat
     // camera follow：弱化 zoom/shake，避免攻击时整屏一跳一跳
@@ -2615,7 +3578,7 @@ private fun DrawScope.drawArena(
 
     // top-down world field — 古画地席，按章节色系
     drawArenaBackdrop(
-        meta.stage().chapterIndex, w, viewH, camX, camY, sim.time,
+        meta.stage().chapterIndex, sim.environment, w, viewH, camX, camY, sim.time,
         sim.width, sim.height,
         { x -> wx(x) }, { y -> wy(y) }, { r -> wr(r) }
     )
@@ -2643,6 +3606,68 @@ private fun DrawScope.drawArena(
         title(tm, "墨马奔袭", w * 0.5f, viewH * 0.08f, Color(0xDD2C1810), 18.sp)
     }
 
+    // 免疫核心的延迟回响：先看到收束信号环，随后触发第二次技能脉冲。
+    for (echo in sim.echoPulses) {
+        val progress = (1f - echo.life / echo.maxLife.coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+        val center = Offset(wx(echo.x), wy(echo.y))
+        val radius = wr(echo.radius)
+        val echoColor = Color(echo.color)
+        drawCircle(echoColor.copy(alpha = 0.08f + progress * 0.12f), radius, center)
+        drawCircle(echoColor.copy(alpha = 0.48f + progress * 0.35f), radius, center, style = Stroke(3f + progress * 3f))
+        drawCircle(Color.White.copy(alpha = 0.25f + progress * 0.55f), radius * (1f - progress * 0.78f), center, style = Stroke(2f))
+        title(tm, echo.glyph, center.x, center.y - 2f, echoColor.copy(alpha = 0.55f + progress * 0.4f), 18.sp)
+    }
+
+    // Boss 专属招式预警：实心淡区表示危险面，收束白线表示剩余反应时间。
+    for (hazard in sim.bossHazards) {
+        val progress = hazard.warningProgress()
+        val pulse = 0.55f + sin(sim.time * 14f) * 0.18f
+        val danger = Color(hazard.color)
+        when (hazard.shape) {
+            BossHazardShape.CIRCLE -> {
+                val center = Offset(wx(hazard.x0), wy(hazard.y0))
+                val radius = wr(hazard.outerRadius)
+                drawCircle(danger.copy(alpha = 0.13f + progress * 0.12f), radius, center)
+                drawCircle(danger.copy(alpha = pulse), radius, center, style = Stroke(4f + progress * 3f))
+                drawCircle(Color.White.copy(alpha = 0.35f + progress * 0.45f), radius * (1f - progress * 0.82f), center, style = Stroke(2.5f))
+            }
+            BossHazardShape.RING -> {
+                val center = Offset(wx(hazard.x0), wy(hazard.y0))
+                val inner = wr(hazard.innerRadius)
+                val outer = wr(hazard.outerRadius)
+                val middle = (inner + outer) * 0.5f
+                drawCircle(
+                    danger.copy(alpha = 0.14f + progress * 0.12f),
+                    middle,
+                    center,
+                    style = Stroke((outer - inner).coerceAtLeast(2f))
+                )
+                drawCircle(danger.copy(alpha = pulse), inner, center, style = Stroke(3.5f))
+                drawCircle(danger.copy(alpha = pulse), outer, center, style = Stroke(3.5f))
+                val sweep = inner + (outer - inner) * progress
+                drawCircle(Color.White.copy(alpha = 0.32f + progress * 0.5f), sweep, center, style = Stroke(2f))
+            }
+            BossHazardShape.LINE -> {
+                val start = Offset(wx(hazard.x0), wy(hazard.y0))
+                val end = Offset(wx(hazard.x1), wy(hazard.y1))
+                val lane = wr(hazard.width)
+                drawLine(danger.copy(alpha = 0.12f + progress * 0.13f), start, end, lane, StrokeCap.Round)
+                drawLine(danger.copy(alpha = pulse), start, end, 4f + progress * 3f, StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = 0.25f + progress * 0.5f), start, end, 1.5f + progress * 2f, StrokeCap.Round)
+            }
+        }
+        if (hazard.label.isNotEmpty()) {
+            val labelX = if (hazard.shape == BossHazardShape.LINE) (hazard.x0 + hazard.x1) * 0.5f else hazard.x0
+            val labelY = if (hazard.shape == BossHazardShape.LINE) (hazard.y0 + hazard.y1) * 0.5f else hazard.y0
+            val labelLift = if (hazard.shape == BossHazardShape.LINE) 38f else hazard.outerRadius.coerceAtLeast(35f)
+            title(
+                tm, "预警 · ${hazard.label}",
+                wx(labelX), wy(labelY) - wr(labelLift) - 10f,
+                Color(0xFFFEE2E2), 13.sp
+            )
+        }
+    }
+
     // rings under characters
     for (r in sim.rings) {
         val a = (r.life / r.maxLife).coerceIn(0f, 1f)
@@ -2652,6 +3677,26 @@ private fun DrawScope.drawArena(
             Offset(wx(r.x), wy(r.y)),
             style = Stroke(4f)
         )
+    }
+    // Real lightning strokes: segmented, bright core + colored bloom.
+    for (bolt in sim.bolts) {
+        val alpha = (bolt.life / bolt.maxLife).coerceIn(0f, 1f)
+        val x0 = wx(bolt.x0); val y0 = wy(bolt.y0)
+        val x1 = wx(bolt.x1); val y1 = wy(bolt.y1)
+        val dx = x1 - x0; val dy = y1 - y0
+        val length = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+        val nx = -dy / length; val ny = dx / length
+        var px = x0; var py = y0
+        val segments = 8
+        for (i in 1..segments) {
+            val q = i / segments.toFloat()
+            val jitter = if (i == segments) 0f else sin(i * 2.7f + sim.time * 38f) * 9f
+            val tx = x0 + dx * q + nx * jitter
+            val ty = y0 + dy * q + ny * jitter
+            drawLine(Color(bolt.color).copy(alpha = alpha * 0.35f), Offset(px, py), Offset(tx, ty), 9f, StrokeCap.Round)
+            drawLine(Color.White.copy(alpha = alpha), Offset(px, py), Offset(tx, ty), 2.5f, StrokeCap.Round)
+            px = tx; py = ty
+        }
     }
 
     val t = sim.time
@@ -2668,9 +3713,25 @@ private fun DrawScope.drawArena(
         val drawR = wr(e.radius * (1f + sq * 0.35f))
         val ex = wx(e.x)
         val ey = wy(e.y) + sq * wr(e.radius) * 0.25f + hover
+        val eliteColor = if (e.eliteTrait == EnemyEliteTrait.NONE) Color(0xFFFBBF24)
+            else Color(e.eliteTrait.color)
+        if (e.specialAttack != EnemySignatureAttack.NONE && e.specialWindup > 0f) {
+            val cue = e.specialAttack
+            val cueColor = Color(cue.color)
+            val progress = (1f - e.specialWindup / cue.windup.coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+            val aim = Offset(wx(e.specialAimX), wy(e.specialAimY))
+            drawLine(cueColor.copy(alpha = 0.3f + progress * 0.45f), Offset(ex, ey), aim, 2f + progress * 2f, StrokeCap.Round)
+            drawCircle(cueColor.copy(alpha = 0.16f + progress * 0.18f), drawR * (1.25f + progress * 0.35f), Offset(ex, ey))
+            drawCircle(cueColor.copy(alpha = 0.8f), drawR * (1.55f - progress * 0.28f), Offset(ex, ey), style = Stroke(2.5f + progress * 1.5f))
+            drawCircle(cueColor.copy(alpha = 0.68f), 18f + progress * 10f, aim, style = Stroke(2.5f))
+            title(tm, cue.glyph, ex, ey - drawR * 1.8f, cueColor, 10.sp)
+        }
         if (e.windup > 0f) drawCircle(Color(0x88FB923C), drawR * 1.55f, Offset(ex, ey), style = Stroke(4f))
         if (e.enraged) drawCircle(Color(0x55EF4444), drawR * 1.35f, Offset(ex, ey), style = Stroke(3f))
-        if (e.elite) drawCircle(Color(0x66FBBF24), drawR * 1.25f, Offset(ex, ey), style = Stroke(2.5f))
+        if (e.elite) {
+            drawCircle(eliteColor.copy(alpha = 0.24f), drawR * 1.42f, Offset(ex, ey))
+            drawCircle(eliteColor.copy(alpha = 0.82f), drawR * 1.3f, Offset(ex, ey), style = Stroke(3f))
+        }
         if (e.hitStun > 0f) {
             drawCircle(Color.White.copy(alpha = 0.25f), drawR * 1.25f, Offset(ex, ey))
         }
@@ -2683,37 +3744,66 @@ private fun DrawScope.drawArena(
         if (e.has(StatusType.POISON)) {
             drawCircle(Color(0x33A3E635), drawR * 1.2f, Offset(ex, ey))
         }
+        val tacticalRole = kind.tacticalRole()
+        if (tacticalRole != EnemyTacticalRole.NONE) {
+            val roleColor = Color(tacticalRole.color)
+            val auraRadius = if (tacticalRole == EnemyTacticalRole.GUARD) drawR * 2.1f else drawR * 1.45f
+            drawCircle(
+                roleColor.copy(alpha = 0.18f + 0.08f * sin(t * 4f + e.x * 0.01f)),
+                auraRadius,
+                Offset(ex, ey),
+                style = Stroke(if (tacticalRole == EnemyTacticalRole.GUARD) 3.5f else 2.5f)
+            )
+        }
+        if (e.has(StatusType.RAGE)) {
+            drawCircle(Color(0x66FB923C), drawR * 1.55f, Offset(ex, ey), style = Stroke(3f))
+        }
         drawInkEnemy(ex, ey, drawR * (1f - sq * 0.2f), kind, e.hitFlash, bob, e.facing, e.elite, e.enraged)
+        if (e.eliteTrait != EnemyEliteTrait.NONE) {
+            val traitCenter = Offset(ex + drawR * 0.88f, ey - drawR * 0.82f)
+            drawCircle(Color(0xDD0F172A), 14f, traitCenter)
+            drawCircle(eliteColor, 13f, traitCenter, style = Stroke(2f))
+            title(tm, e.eliteTrait.badge, traitCenter.x, traitCenter.y - 7f, eliteColor, 9.sp)
+        }
+        if (tacticalRole != EnemyTacticalRole.NONE) {
+            val roleEmblem = when (tacticalRole) {
+                EnemyTacticalRole.HEALER -> StatusEmblem.HEALER
+                EnemyTacticalRole.DRUMMER -> StatusEmblem.DRUMMER
+                EnemyTacticalRole.GUARD -> StatusEmblem.GUARD
+                EnemyTacticalRole.NONE -> StatusEmblem.VULN
+            }
+            drawStatusEmblem(ex - drawR * 0.92f, ey - drawR * 0.78f, 12f, roleEmblem, t)
+        }
         if (sq > 0.4f) {
             drawCircle(Color.White.copy(alpha = sq * 0.3f), drawR * (1.15f + sq), Offset(ex, ey + drawR * 0.55f), style = Stroke(2.5f))
         }
-        // status labels (readable)
+        // 状态徽记（图形化，中日文通用）
         var tagY = ey - drawR * 1.75f
         if (e.has(StatusType.FREEZE)) {
-            title(tm, "冻", ex, tagY, Color(0xFF7DD3FC), 11.sp); tagY -= 14f
+            drawStatusEmblem(ex, tagY, 9f, StatusEmblem.FREEZE, t); tagY -= 22f
         }
         if (e.has(StatusType.POISON)) {
-            title(tm, "毒", ex, tagY, Color(0xFFA3E635), 11.sp); tagY -= 14f
+            drawStatusEmblem(ex, tagY, 9f, StatusEmblem.POISON, t); tagY -= 22f
         }
         if (e.has(StatusType.BURN)) {
-            title(tm, "燃", ex, tagY, Color(0xFFFF6B35), 11.sp); tagY -= 14f
+            drawStatusEmblem(ex, tagY, 9f, StatusEmblem.BURN, t); tagY -= 22f
         }
         if (e.has(StatusType.VULN)) {
-            title(tm, "弱", ex, tagY, Color(0xFFF472B6), 11.sp)
+            drawStatusEmblem(ex, tagY, 9f, StatusEmblem.VULN, t)
         }
         // 五行标签
         title(tm, e.element.short, ex + drawR * 0.9f, ey - drawR * 0.2f, e.element.color, 10.sp)
         var sx = ex - drawR
         if (e.has(StatusType.BURN)) {
-            drawCircle(Color(0xFFFF6B35), 6f, Offset(sx, ey - drawR - 10f)); sx += 14f
+            drawStatusEmblem(sx + 8f, ey - drawR - 12f, 7f, StatusEmblem.BURN, t); sx += 18f
         }
         if (e.has(StatusType.POISON)) {
-            drawCircle(Color(0xFFA3E635), 6f, Offset(sx, ey - drawR - 10f)); sx += 14f
+            drawStatusEmblem(sx + 8f, ey - drawR - 12f, 7f, StatusEmblem.POISON, t); sx += 18f
         }
         if (e.has(StatusType.SLOW) || e.has(StatusType.FREEZE)) {
-            drawCircle(Color(0xFF7DD3FC), 6f, Offset(sx, ey - drawR - 10f)); sx += 14f
+            drawStatusEmblem(sx + 8f, ey - drawR - 12f, 7f, StatusEmblem.SLOW, t); sx += 18f
         }
-        if (e.has(StatusType.VULN)) drawCircle(Color(0xFFF472B6), 6f, Offset(sx, ey - drawR - 10f))
+        if (e.has(StatusType.VULN)) drawStatusEmblem(sx + 8f, ey - drawR - 12f, 7f, StatusEmblem.VULN, t)
         val bw = drawR * 2.5f
         val barY = ey - drawR * 1.55f
         drawRoundRect(Color(0xCC0F172A), Offset(ex - bw / 2f - 1f, barY - 1f), Size(bw + 2f, 9f), CornerRadius(4f, 4f))
@@ -2752,15 +3842,39 @@ private fun DrawScope.drawArena(
     if (p.has(StatusType.SHIELD)) drawCircle(Color(0x66B45309), p.radius * 1.4f, Offset(px, py), style = Stroke(3f))
     if (sim.healPulse > 0f) drawCircle(Color(0x554D7C0F), p.radius * (1.45f + sim.healPulse), Offset(px, py), style = Stroke(2.5f))
     val invBlink = sim.playerInvuln > 0f && ((t * 18f).toInt() % 2 == 0)
+    drawBattleArmorAura(px, py, wr(p.radius), meta.equippedArmor(), t)
     if (!invBlink) {
         drawShadowDisk(px, py, wr(p.radius))
         drawSetAura(px, py, wr(p.radius), meta.activeSet(), t)
-        drawInkHero(px, py, wr(p.radius), p.facing, meta.skin(), p.hitFlash, bob)
+        drawInkHero(px, py, wr(p.radius), p.facing, meta.skin(), p.hitFlash, bob, drawPlaceholderWeapon = false, hero = meta.hero)
     } else {
         drawShadowDisk(px, py, wr(p.radius) * 0.9f)
         drawCircle(Color(0x88F5EBD4), wr(p.radius) * 0.95f, Offset(px, py), style = Stroke(2.5f))
         drawSetAura(px, py, wr(p.radius), meta.activeSet(), t)
-        drawInkHero(px, py, wr(p.radius), p.facing, meta.skin(), hitFlash = 1f, bob = bob)
+        drawInkHero(px, py, wr(p.radius), p.facing, meta.skin(), hitFlash = 1f, bob = bob, drawPlaceholderWeapon = false, hero = meta.hero)
+    }
+    drawBattleEquipmentForm(
+        px, py, wr(p.radius), meta.hero,
+        meta.equippedArmor(), meta.equippedRing(), meta.equippedBoots(),
+        p.facing,
+        moving = kotlin.math.abs(p.vx) + kotlin.math.abs(p.vy) > 20f,
+        pulse = t
+    )
+    if (!invBlink) {
+        val weaponSide = if (p.facing >= 0f) 1f else -1f
+        val weaponScale = when (meta.hero) {
+            HeroClass.WARRIOR -> 0.96f
+            HeroClass.MAGE -> 0.78f
+            HeroClass.TAOIST -> 0.80f
+        }
+        drawBattleWeaponArt(
+            px + weaponSide * wr(p.radius) * 1.25f,
+            py + wr(p.radius) * 0.02f,
+            wr(p.radius) * weaponScale,
+            meta.equippedWeapon(),
+            p.facing,
+            sim.slashFx
+        )
     }
     // 笔锋斩（弧线+飞白），去掉金星扇形
     if (sim.slashFx > 0f) {
@@ -2785,12 +3899,26 @@ private fun DrawScope.drawArena(
         val cx = wx(f.x)
         val cy = wy(f.y)
         val rr = wr(f.r)
-        if (f.kind == 0) {
+        if (f.kind == 0 || f.kind == 3) {
             // poison mist: green fog blob
             drawCircle(Color(0xFFA3E635).copy(alpha = 0.22f * a), rr, Offset(cx, cy))
             drawCircle(Color(0xFF65A30D).copy(alpha = 0.35f * a), rr * 0.7f, Offset(cx, cy))
             drawCircle(Color(0xFFA3E635).copy(alpha = 0.7f * a), rr, Offset(cx, cy), style = Stroke(4f))
-            title(tm, "毒雾", cx, cy - rr - 4f, Color(0xFFA3E635).copy(alpha = a), 12.sp)
+            if (f.kind == 3) {
+                drawCircle(Color(0xFFECFCCB).copy(alpha = 0.65f * a), rr * 0.35f, Offset(cx, cy), style = Stroke(2f))
+            }
+            title(tm, if (f.kind == 3) "随身毒雾" else "毒雾", cx, cy - rr - 4f, Color(0xFFA3E635).copy(alpha = a), 12.sp)
+        } else if (f.kind == 2) {
+            drawCircle(Color(0xFFFF6B35).copy(alpha = 0.18f * a), rr, Offset(cx, cy))
+            drawCircle(Color(0xFFB91C1C).copy(alpha = 0.28f * a), rr * 0.62f, Offset(cx, cy))
+            drawCircle(Color(0xFFFFA94D).copy(alpha = 0.82f * a), rr, Offset(cx, cy), style = Stroke(3.5f))
+            repeat(6) { index ->
+                val angle = index * 1.047f + sim.time * 0.45f
+                val flameX = cx + cos(angle) * rr * 0.52f
+                val flameY = cy + sin(angle) * rr * 0.52f
+                drawCircle(Color(0xFFFDE68A).copy(alpha = 0.55f * a), 3.5f + 2f * sin(sim.time * 5f + index), Offset(flameX, flameY))
+            }
+            title(tm, "余烬", cx, cy - rr - 4f, Color(0xFFFF6B35).copy(alpha = a), 11.sp)
         } else {
             // sage array: concentric + cross marks
             drawCircle(Color(0xFF4ADE80).copy(alpha = 0.16f * a), rr, Offset(cx, cy))
@@ -2871,10 +3999,37 @@ private fun DrawScope.drawArena(
         val a = (f.life / 0.95f).coerceIn(0f, 1f)
         val fs = (14f * f.scale).sp
         val layout = tm.measure(
-            f.text,
+            GameI18n.tr(f.text),
             TextStyle(Color(f.r / 255f, f.g / 255f, f.b / 255f, a), fontSize = fs, fontWeight = FontWeight.Bold)
         )
         drawText(layout, topLeft = Offset(wx(f.x) - layout.size.width / 2f, wy(f.y)))
+    }
+    // Every active skill gets a brief readable seal/burst; ultimates receive a larger cinematic beat.
+    for (fx in sim.skillCastsFx) {
+        val a = (fx.life / fx.maxLife).coerceIn(0f, 1f)
+        val progress = 1f - a
+        val cx = wx(fx.x); val cy = wy(fx.y)
+        val base = wr(if (fx.ultimate) 86f else 54f)
+        drawCircle(
+            Brush.radialGradient(listOf(Color(fx.color).copy(alpha = a * 0.34f), Color.Transparent)),
+            base * (0.8f + progress * 0.9f), Offset(cx, cy)
+        )
+        val rayCount = if (fx.ultimate) 12 else 8
+        for (i in 0 until rayCount) {
+            val angle = i * (6.28318f / rayCount) + progress * 0.8f
+            val inner = base * 0.48f
+            val outer = base * (0.8f + progress * 0.55f)
+            drawLine(
+                Color(fx.color).copy(alpha = a * 0.75f),
+                Offset(cx + cos(angle) * inner, cy + sin(angle) * inner),
+                Offset(cx + cos(angle) * outer, cy + sin(angle) * outer),
+                if (fx.ultimate) 5f else 3f,
+                StrokeCap.Round
+            )
+        }
+        drawCircle(Color(fx.color).copy(alpha = a), base * (0.42f + progress * 0.35f), Offset(cx, cy), style = Stroke(if (fx.ultimate) 6f else 4f))
+        title(tm, fx.glyph, cx, cy - if (fx.ultimate) 17f else 13f, Color.White.copy(alpha = a), if (fx.ultimate) 26.sp else 19.sp)
+        title(tm, fx.name, cx, cy + base * 0.62f, Color(fx.color).copy(alpha = a), if (fx.ultimate) 15.sp else 11.sp)
     }
     // scene polish overlay
     drawArenaVignette(w, viewH)
@@ -2898,6 +4053,55 @@ private fun DrawScope.drawArena(
     if (sim.isUltFree()) {
         title(tm, "必杀就绪！", w * 0.82f, h * 0.42f, Color(0xFFFBBF24), 13.sp)
     }
+    if (sim.environment.active) {
+        val envColor = Color(sim.environment.color)
+        val chipW = w * 0.32f
+        val chipH = h * 0.043f
+        val chipX = (w - chipW) * 0.5f
+        val chipY = h * 0.082f
+        drawRoundRect(Color(0xB81C1410), Offset(chipX, chipY), Size(chipW, chipH), CornerRadius(8f))
+        drawRoundRect(envColor.copy(alpha = 0.78f), Offset(chipX, chipY), Size(chipW, chipH), CornerRadius(8f), style = Stroke(1.4f))
+        title(tm, sim.environment.title, w * 0.5f, chipY + h * 0.002f, envColor, 9.sp)
+    }
+    sim.roomTrial?.let { trial ->
+        val trialY = h * 0.145f
+        val accent = if (sim.finished && sim.trialSucceeded) Color(0xFF34D399) else Color(trial.accent)
+        drawRoundRect(Color(0xB81C1410), Offset(w * 0.02f, trialY), Size(w * 0.46f, h * 0.055f), CornerRadius(8f))
+        drawRoundRect(accent.copy(alpha = 0.75f), Offset(w * 0.02f, trialY), Size(w * 0.46f, h * 0.055f), CornerRadius(8f), style = Stroke(1.5f))
+        title(tm, "试炼·${trial.title}", w * 0.13f, trialY + h * 0.007f, accent, 10.sp)
+        title(tm, sim.trialProgressLine(), w * 0.35f, trialY + h * 0.007f, Color(0xFFF5EBD4), 9.sp)
+    }
+    if (sim.activeGearProc != GearProc.NONE) {
+        val proc = sim.activeGearProc
+        val procY = h * 0.145f
+        val procX = w * 0.52f
+        val procW = w * 0.46f
+        val procH = h * 0.055f
+        val color = Color(proc.fxColor())
+        val pulseBoost = sim.gearProcPulse.coerceIn(0f, 1f)
+        drawRoundRect(Color(0xB81C1410), Offset(procX, procY), Size(procW, procH), CornerRadius(8f))
+        drawRoundRect(
+            color.copy(alpha = 0.58f + pulseBoost * 0.38f),
+            Offset(procX, procY), Size(procW, procH), CornerRadius(8f),
+            style = Stroke(1.5f + pulseBoost * 2.5f)
+        )
+        if (sim.gearProcCooldownMax > 0f) {
+            drawRoundRect(
+                color.copy(alpha = 0.28f),
+                Offset(procX + 3f, procY + procH - 7f),
+                Size((procW - 6f) * sim.gearProcReadyFraction(), 4f),
+                CornerRadius(2f)
+            )
+        }
+        val sourceName = meta.activeSet()?.name ?: meta.equippedWeapon().name
+        title(tm, "${proc.title} · ${sourceName.take(6)}", procX + procW * 0.30f, procY + h * 0.006f, color, 9.sp)
+        val state = when {
+            sim.gearProcCooldownMax <= 0f -> "常驻"
+            sim.gearProcCooldown <= 0.01f -> "就绪"
+            else -> String.format(Locale.ROOT, "%.1fs", sim.gearProcCooldown)
+        }
+        title(tm, state, procX + procW * 0.82f, procY + h * 0.006f, Color(0xFFF5EBD4), 9.sp)
+    }
     // story combat banner
     if (meta.arenaBannerT > 0f && meta.arenaBanner.isNotEmpty()) {
         val a = (meta.arenaBannerT / 2.8f).coerceIn(0f, 1f)
@@ -2907,6 +4111,7 @@ private fun DrawScope.drawArena(
 
     // HUD — 薄绢本：血/蓝/杀气 三笔 + 暂停
     val uCtrl = min(w, h)
+    val controls = arenaControlLayout(w, h)
     val hudTop = h * 0.012f
     val hudH = h * 0.12f
     drawInkCombatHudFrame(6f, hudTop, w - 12f, hudH)
@@ -2918,6 +4123,13 @@ private fun DrawScope.drawArena(
         "波${sim.waveIndex + 1}/${sim.waveTotal} · ${eqW.name}",
         w * 0.50f, hudTop + 4f, Color(0xFFE7C98A), 11.sp
     )
+    if (meta.coreInkRanks.isNotEmpty()) {
+        title(
+            tm,
+            "免疫核心 ${meta.coreInkRanks.entries.joinToString(" ") { "${it.key.glyph}${it.value}" }}",
+            w * 0.50f, hudTop + 18f, Color(0xFFC4B5FD), 8.sp
+        )
+    }
     val barX = w * 0.14f
     val barW = w * 0.62f
     val hpY = hudTop + hudH * 0.32f
@@ -2930,8 +4142,8 @@ private fun DrawScope.drawArena(
     title(tm, "金${sim.goldEarned}  药${meta.potions}", w * 0.88f, hudTop + 6f, Color(0xFFE7C98A), 10.sp)
 
     // potion seal
-    val potCx = w * 0.93f
-    val potCy = h * 0.26f
+    val potCx = controls.potionX
+    val potCy = controls.potionY
     val potR = uCtrl * 0.065f
     drawInkSkillSeal(potCx, potCy, potR, meta.potions > 0, false, Color(0xFF4D7C0F))
     title(tm, "药${meta.potions}", potCx, potCy - 8f, Color(0xFFF5EBD4), 12.sp)
@@ -2951,8 +4163,8 @@ private fun DrawScope.drawArena(
     if (sim.moveHint > 0f) {
         val a = (sim.moveHint / 3.5f).coerceIn(0f, 1f)
         title(tm, "左半屏拖动移动", w * 0.22f, h * 0.55f, Color.White.copy(alpha = a), 13.sp)
-        title(tm, "右下普攻 · 上技能必杀", w * 0.78f, h * 0.40f, Color.White.copy(alpha = a), 12.sp)
-        title(tm, "右上「药」喝药水", w * 0.78f, h * 0.34f, Color(0xFF86EFAC).copy(alpha = a), 12.sp)
+        title(tm, "移动中：右下攻击 · 右侧长按技能盘", w * 0.78f, h * 0.40f, Color.White.copy(alpha = a), 12.sp)
+        title(tm, "技能盘滑到图标上松开=释放该技能", w * 0.78f, h * 0.34f, Color(0xFF86EFAC).copy(alpha = a), 12.sp)
     }
 
     // 水墨摇杆
@@ -2961,6 +4173,23 @@ private fun DrawScope.drawArena(
     val joyR = uCtrl * 0.13f
     drawInkJoystick(ghostOx, ghostOy, joyR, joyActive, joyKnobX, joyKnobY)
     if (!joyActive) title(tm, "移", ghostOx, ghostOy + joyR + 2f, Color(0xFFD6BC9A), 11.sp)
+
+    // 移动中技能盘：布局与实体按钮同构（缩放0.6），滑动选择
+    if (wheelActive) {
+        val sk = sim.skills
+        val gr = uCtrl * 0.055f
+        fun ghost(cx: Float, cy: Float, glyph: String, col: Color, sel: Boolean, locked: Boolean, lockLv: Int) {
+            drawCircle(Color(0xB30F172A), gr + 5f, Offset(cx, cy))
+            if (sel) drawCircle(col.copy(alpha = 0.35f), gr, Offset(cx, cy))
+            drawCircle(if (locked) Color(0xFF57534E) else col, gr, Offset(cx, cy), style = Stroke(if (sel) 5f else 2.5f))
+            title(tm, if (locked) "Lv$lockLv" else glyph, cx, cy - 8f, Color(0xFFF5EBD4), 13.sp)
+        }
+        ghost(wheelX, wheelY, sk[0].glyph, meta.hero.color, wheelSlotSel == 0, !sim.skillUnlocked(0), sk[0].unlockLevel)
+        ghost(wheelX - w * 0.072f, wheelY + h * 0.048f, sk[1].glyph, Color(0xFFFB923C), wheelSlotSel == 1, !sim.skillUnlocked(1), sk[1].unlockLevel)
+        ghost(wheelX - w * 0.120f, wheelY - h * 0.036f, sk[2].glyph, Color(0xFFA78BFA), wheelSlotSel == 2, !sim.skillUnlocked(2), sk[2].unlockLevel)
+        ghost(wheelX - w * 0.084f, wheelY - h * 0.132f, sk[3].glyph, Color(0xFF2DD4BF), wheelSlotSel == 3, !sim.skillUnlocked(3), sk[3].unlockLevel)
+        ghost(wheelX - w * 0.012f, wheelY - h * 0.204f, sk[4].glyph, Color(0xFFFBBF24), wheelSlotSel == 4, !sim.skillUnlocked(4), sk[4].unlockLevel)
+    }
 
     fun skillBtn(
         cx: Float, cy: Float, r: Float, label: String, name: String,
@@ -2975,28 +4204,28 @@ private fun DrawScope.drawArena(
         drawInkSkillSeal(cx, cy, r, ready, held, col)
         title(tm, label, cx, cy - 9f, Color(0xFFF5EBD4), 15.sp)
         when {
-            !ready && cd > 0f -> title(tm, String.format("%.1f", cd), cx, cy + 8f, Color(0xFFE7C98A), 10.sp)
+            !ready && cd > 0f -> title(tm, String.format(Locale.ROOT, "%.1f", cd), cx, cy + 8f, Color(0xFFE7C98A), 10.sp)
             else -> title(tm, name.take(2), cx, cy + r + 1f, Color(0xFFD6BC9A), 9.sp)
         }
     }
     val sk = sim.skills
     skillBtn(
-        w * 0.88f, h * 0.76f, uCtrl * 0.10f, sk[0].glyph, sk[0].name,
+        controls.attackX, controls.attackY, uCtrl * 0.10f, sk[0].glyph, sk[0].name,
         sim.skillReady(0), sim.skillCdLeft(0), meta.hero.color, basicHeld,
         locked = !sim.skillUnlocked(0), lockLv = sk[0].unlockLevel, tip = sk[0].tip.take(7)
     )
     skillBtn(
-        w * 0.76f, h * 0.84f, uCtrl * 0.072f, sk[1].glyph, sk[1].name,
+        controls.skill1X, controls.skill1Y, uCtrl * 0.072f, sk[1].glyph, sk[1].name,
         sim.skillReady(1), sim.skillCdLeft(1), Color(0xFFFB923C), s1Held,
         locked = !sim.skillUnlocked(1), lockLv = sk[1].unlockLevel, tip = sk[1].tip.take(8)
     )
     skillBtn(
-        w * 0.68f, h * 0.70f, uCtrl * 0.072f, sk[2].glyph, sk[2].name,
+        controls.skill2X, controls.skill2Y, uCtrl * 0.072f, sk[2].glyph, sk[2].name,
         sim.skillReady(2), sim.skillCdLeft(2), Color(0xFFA78BFA), s2Held,
         locked = !sim.skillUnlocked(2), lockLv = sk[2].unlockLevel, tip = sk[2].tip.take(8)
     )
     skillBtn(
-        w * 0.74f, h * 0.54f, uCtrl * 0.072f, sk[3].glyph, sk[3].name,
+        controls.skill3X, controls.skill3Y, uCtrl * 0.072f, sk[3].glyph, sk[3].name,
         sim.skillReady(3), sim.skillCdLeft(3), Color(0xFF2DD4BF), s3Held,
         locked = !sim.skillUnlocked(3), lockLv = sk[3].unlockLevel, tip = sk[3].tip.take(8)
     )
@@ -3004,7 +4233,7 @@ private fun DrawScope.drawArena(
     val ultFree = sim.isUltFree()
     val ultLocked = !sim.skillUnlocked(4)
     skillBtn(
-        w * 0.86f, h * 0.42f, uCtrl * 0.088f,
+        controls.ultX, controls.ultY, uCtrl * 0.088f,
         sk[4].glyph,
         when {
             ultLocked -> sk[4].name
@@ -3020,7 +4249,7 @@ private fun DrawScope.drawArena(
         drawCircle(
             Color(0x66FBBF24),
             uCtrl * 0.10f + if (ultFree) sin(t * 8f) * 4f else 0f,
-            Offset(w * 0.86f, h * 0.42f),
+            Offset(controls.ultX, controls.ultY),
             style = Stroke(if (ultFree) 5f else 3f)
         )
     }
@@ -3053,6 +4282,7 @@ private fun DrawScope.drawArena(
 }
 
 private fun DrawScope.title(tm: TextMeasurer, text: String, x: Float, y: Float, color: Color, size: TextUnit) {
-    val layout = tm.measure(text, TextStyle(color = color, fontSize = size, fontWeight = FontWeight.Bold))
+    val shown = GameI18n.tr(text)
+    val layout = tm.measure(shown, TextStyle(color = color, fontSize = size, fontWeight = FontWeight.Bold))
     drawText(layout, topLeft = Offset(x - layout.size.width / 2f, y))
 }

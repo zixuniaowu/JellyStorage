@@ -12,6 +12,7 @@ import android.os.VibratorManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import com.jellystorage.R
 
 class HapticAudioManager(context: Context) {
 
@@ -41,9 +42,6 @@ class HapticAudioManager(context: Context) {
     private var killId: Int = 0
     private var hurtId: Int = 0
     private var uiId: Int = 0
-    private var loadedCount = 0
-    private var expectedLoads = 0
-
     /** 外部开关：设置页 soundOn / hapticsOn */
     @Volatile var soundEnabled: Boolean = true
     @Volatile var hapticsEnabled: Boolean = true
@@ -55,26 +53,12 @@ class HapticAudioManager(context: Context) {
     }
 
     init {
-        val pkg = context.packageName
-        // 旧名 + 新战斗音效；缺文件不崩
-        thudSoundId = loadOptional(context, "thud", pkg)
-        rustleSoundId = loadOptional(context, "rustle", pkg)
-        squishSoundId = loadOptional(context, "squish", pkg)
-        hitId = loadOptional(context, "sfx_hit", pkg)
-        critId = loadOptional(context, "sfx_crit", pkg)
-        killId = loadOptional(context, "sfx_kill", pkg)
-        hurtId = loadOptional(context, "sfx_hurt", pkg)
-        uiId = loadOptional(context, "sfx_ui", pkg)
-        soundPool.setOnLoadCompleteListener { _, sampleId, status ->
-            if (status == 0 && sampleId != 0) loadedCount++
-        }
-    }
-
-    private fun loadOptional(context: Context, name: String, pkg: String): Int {
-        val resId = context.resources.getIdentifier(name, "raw", pkg)
-        if (resId == 0) return 0
-        expectedLoads++
-        return soundPool.load(context, resId, 1)
+        // Compile-time resource IDs keep release shrinking and validation reliable.
+        hitId = soundPool.load(context, R.raw.sfx_hit, 1)
+        critId = soundPool.load(context, R.raw.sfx_crit, 1)
+        killId = soundPool.load(context, R.raw.sfx_kill, 1)
+        hurtId = soundPool.load(context, R.raw.sfx_hurt, 1)
+        uiId = soundPool.load(context, R.raw.sfx_ui, 1)
     }
 
     fun thud() {
@@ -110,16 +94,15 @@ class HapticAudioManager(context: Context) {
 
     fun vibrateSnap() {
         if (!hapticsEnabled) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val effect = VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
             vibrator?.vibrate(effect)
         } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(20L)
+            vibrator?.vibrate(VibrationEffect.createOneShot(20L, 140))
         }
     }
 
-    /** Combat hit feedback: 1 light, 2 crit, 3 kill, 4 player hurt */
+    /** Combat feedback: 1 light, 2 crit, 3 kill, 4 hurt, 5 skill, 6 ultimate. */
     fun combatPulse(level: Int) {
         if (level <= 0) return
         if (hapticsEnabled) {
@@ -128,13 +111,19 @@ class HapticAudioManager(context: Context) {
                 2 -> {
                     vibrateOneShot(18L, 200)
                     vibrator?.let {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            it.vibrate(VibrationEffect.createOneShot(36L, 255))
-                        }
+                        it.vibrate(VibrationEffect.createOneShot(36L, 255))
                     }
                 }
                 3 -> vibrateOneShot(55L, 255)
-                else -> vibrateOneShot(45L, 220)
+                4 -> vibrateOneShot(45L, 220)
+                5 -> vibrateOneShot(34L, 185)
+                else -> vibrator?.vibrate(
+                    VibrationEffect.createWaveform(
+                        longArrayOf(0L, 28L, 34L, 68L),
+                        intArrayOf(0, 170, 0, 255),
+                        -1
+                    )
+                )
             }
         }
         if (!soundEnabled) return
@@ -160,10 +149,19 @@ class HapticAudioManager(context: Context) {
                     else toneBeep(ToneGenerator.TONE_CDMA_CONFIRM, 70)
                 }
             }
-            else -> {
+            4 -> {
                 if (hurtId != 0) playSound(hurtId, 0.65f)
                 else if (rustleSoundId != 0) playSound(rustleSoundId, 0.55f)
                 else toneBeep(ToneGenerator.TONE_PROP_NACK, 50)
+            }
+            5 -> {
+                if (critId != 0) playSound(critId, 0.52f, 1.25f)
+                else toneBeep(ToneGenerator.TONE_CDMA_PIP, 55)
+            }
+            else -> {
+                if (killId != 0) playSound(killId, 0.82f, 0.88f)
+                if (critId != 0) playSound(critId, 0.68f, 1.18f)
+                else toneBeep(ToneGenerator.TONE_CDMA_CONFIRM, 100)
             }
         }
     }
@@ -182,19 +180,14 @@ class HapticAudioManager(context: Context) {
 
     private fun vibrateOneShot(ms: Long, amp: Int) {
         if (!hapticsEnabled) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val a = amp.coerceIn(1, 255)
-            vibrator?.vibrate(VibrationEffect.createOneShot(ms, a))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(ms)
-        }
+        val a = amp.coerceIn(1, 255)
+        vibrator?.vibrate(VibrationEffect.createOneShot(ms, a))
     }
 
-    private fun playSound(soundId: Int, volume: Float) {
+    private fun playSound(soundId: Int, volume: Float, rate: Float = 1f) {
         if (!soundEnabled || soundId == 0) return
         try {
-            soundPool.play(soundId, volume, volume, 1, 0, 1f)
+            soundPool.play(soundId, volume, volume, 1, 0, rate.coerceIn(0.5f, 2f))
         } catch (_: Throwable) {
         }
     }

@@ -37,13 +37,16 @@ fun LoginPanel(
     isRegister: Boolean,
     hasAccount: Boolean,
     guestHint: String,
+    language: GameLanguage,
     onUserChange: (String) -> Unit,
     onPassChange: (String) -> Unit,
     onToggleMode: () -> Unit,
     onSubmit: () -> Unit,
     onGuestEnter: () -> Unit,
-    onAutoFill: () -> Unit
+    onAutoFill: () -> Unit,
+    onLanguageToggle: () -> Unit
 ) {
+    fun t(text: String) = GameI18n.tr(text)
     val paper = Brush.verticalGradient(
         listOf(Color(0xFFF3E9D2), Color(0xFFE8D9B8), Color(0xFFD4C4A0))
     )
@@ -54,6 +57,17 @@ fun LoginPanel(
             .background(paper),
         contentAlignment = Alignment.Center
     ) {
+        TextButton(
+            onClick = onLanguageToggle,
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+        ) {
+            Text(
+                if (language == GameLanguage.CHINESE) "日本語" else "中文",
+                color = Color(0xFF5C4033),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
         Column(
             Modifier
                 .widthIn(max = 460.dp)
@@ -64,19 +78,19 @@ fun LoginPanel(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("果冻勇者", color = Color(0xFF2C1810), fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("水墨远征 · 本地账号", color = Color(0xFF5C4033), fontSize = 12.sp)
+            Text(t("免疫战线"), color = Color(0xFF2C1810), fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text(t("人体防卫战 · 本地账号"), color = Color(0xFF5C4033), fontSize = 12.sp)
             Button(
                 onClick = onGuestEnter,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D7C0F)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("一键生成账号并进入", color = Color(0xFFF5EBD4), fontSize = 16.sp)
+                Text(t("一键生成账号并进入"), color = Color(0xFFF5EBD4), fontSize = 16.sp)
             }
             if (guestHint.isNotEmpty()) {
-                Text(guestHint, color = Color(0xFF3F6212), fontSize = 12.sp)
+                Text(t(guestHint), color = Color(0xFF3F6212), fontSize = 12.sp)
             }
-            Text("—— 或手动 ——", color = Color(0xFF78716C), fontSize = 11.sp)
+            Text(t("—— 或手动 ——"), color = Color(0xFF78716C), fontSize = 11.sp)
             val fieldColors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color(0xFF2C1810),
                 unfocusedTextColor = Color(0xFF3F3F46),
@@ -89,7 +103,7 @@ fun LoginPanel(
             OutlinedTextField(
                 value = username,
                 onValueChange = onUserChange,
-                label = { Text("用户名") },
+                label = { Text(t("用户名")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = fieldColors
@@ -97,7 +111,7 @@ fun LoginPanel(
             OutlinedTextField(
                 value = password,
                 onValueChange = onPassChange,
-                label = { Text("密码") },
+                label = { Text(t("密码")) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -105,34 +119,34 @@ fun LoginPanel(
                 colors = fieldColors
             )
             if (message.isNotEmpty()) {
-                Text(message, color = Color(0xFFB91C1C), fontSize = 13.sp)
+                Text(t(message), color = Color(0xFFB91C1C), fontSize = 13.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(
                     onClick = onAutoFill,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C4033)),
                     modifier = Modifier.weight(1f)
-                ) { Text("填入随机账号", color = Color(0xFFF5EBD4), fontSize = 13.sp) }
+                ) { Text(t("填入随机账号"), color = Color(0xFFF5EBD4), fontSize = 13.sp) }
                 Button(
                     onClick = onSubmit,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB45309)),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (isRegister) "注册进入" else "登录", color = Color(0xFFF5EBD4), fontSize = 14.sp)
+                    Text(t(if (isRegister) "注册进入" else "登录"), color = Color(0xFFF5EBD4), fontSize = 14.sp)
                 }
             }
             TextButton(onClick = onToggleMode) {
                 Text(
-                    text = if (isRegister) {
+                    text = t(if (isRegister) {
                         if (hasAccount) "已有账号？去登录" else "改为登录模式"
                     } else {
                         "没有账号？去注册"
-                    },
+                    }),
                     color = Color(0xFF0F766E),
                     fontSize = 12.sp
                 )
             }
-            Text("账号仅本机保存 · 广告支持免费运营", color = Color(0xFF78716C), fontSize = 10.sp)
+            Text(t("账号仅本机保存 · 广告支持免费运营"), color = Color(0xFF78716C), fontSize = 10.sp)
         }
     }
 }

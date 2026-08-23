@@ -1,0 +1,11 @@
+# Copy this file to release.properties. Never commit the filled-in file or keystore.
+ADMOB_APP_ID=ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy
+ADMOB_INTERSTITIAL_ID=ca-app-pub-xxxxxxxxxxxxxxxx/zzzzzzzzzz
+ADMOB_REWARDED_ID=ca-app-pub-xxxxxxxxxxxxxxxx/wwwwwwwwww
+PRIVACY_POLICY_URL=https://your-domain.example/jelly-arena/privacy
+
+# Relative to the repository root, or an absolute path.
+PLAY_UPLOAD_STORE_FILE=keys/jelly-arena-upload.jks
+PLAY_UPLOAD_STORE_PASSWORD=replace-me
+PLAY_UPLOAD_KEY_ALIAS=upload
+PLAY_UPLOAD_KEY_PASSWORD=replace-me

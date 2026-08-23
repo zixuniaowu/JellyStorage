@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>操作按钮布局标注 — 果冻勇者</title>
+<style>
+  body { margin:0; background:#0b1020; color:#e2e8f0; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; padding:16px; }
+  h2 { margin:0 0 4px; }
+  p.sub { margin:0 0 12px; color:#94a3b8; font-size:13px; }
+  .stage { position:relative; width:min(96vw, 1497px); }
+  .stage img { width:100%; display:block; border-radius:8px; }
+  .btn { position:absolute; border:3px solid; border-radius:50%; transform:translate(-50%,-50%); display:flex; align-items:center; justify-content:center; font-weight:bold; text-shadow:0 1px 3px #000; box-shadow:0 0 18px 2px; }
+  .hit { position:absolute; border:2px dashed rgba(255,255,255,.45); border-radius:50%; transform:translate(-50%,-50%); }
+  .tag { position:absolute; transform:translate(-50%,-140%); background:#000c; padding:3px 10px; border-radius:6px; font-size:15px; white-space:nowrap; border:1px solid #666; }
+  .legend { margin-top:14px; display:flex; gap:18px; flex-wrap:wrap; font-size:14px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .dot { width:14px; height:14px; border-radius:50%; display:inline-block; }
+</style>
+</head>
+<body>
+<h2>战斗界面 · 触控按钮真实位置标注</h2>
+<p class="sub">基于当前手机实机截图（画布 2154×1080，按钮圆心按代码坐标计算；虚线圈 = 实际可点中的热区范围 = 半径 × 1.45）</p>
+
+<div class="stage">
+  <img src="../art/arena_now.png" alt="arena screenshot">
+
+  <!-- 攻击键：圆心 (0.88w, 0.76h) = (1895,820)，显示半径 u*0.10=108，热区半径 156 -->
+  <div class="btn" style="left:88%; top:76%; width:10%; aspect-ratio:0.484; border-color:#ef4444; background:#ef444426; font-size:2.2vmin;">攻</div>
+  <div class="hit" style="left:88%; top:76%; width:14.5%; aspect-ratio:0.484;"></div>
+  <div class="tag" style="left:88%; top:76%; margin-top:-14%;">普攻（攻击键）<br>红色大按钮</div>
+
+  <!-- S1：圆心 (0.76w, 0.84h)，半径 u*0.072=78，热区 113 -->
+  <div class="btn" style="left:76%; top:84%; width:7.2%; aspect-ratio:0.484; border-color:#fb923c; background:#fb923c26; font-size:1.7vmin;">技1</div>
+  <div class="hit" style="left:76%; top:84%; width:10.4%; aspect-ratio:0.484;"></div>
+
+  <!-- S2：圆心 (0.68w, 0.70h) -->
+  <div class="btn" style="left:68%; top:70%; width:7.2%; aspect-ratio:0.484; border-color:#a78bfa; background:#a78bfa26; font-size:1.7vmin;">技2</div>
+  <div class="hit" style="left:68%; top:70%; width:10.4%; aspect-ratio:0.484;"></div>
+
+  <!-- S3：圆心 (0.74w, 0.54h) -->
+  <div class="btn" style="left:74%; top:54%; width:7.2%; aspect-ratio:0.484; border-color:#2dd4bf; background:#2dd4bf26; font-size:1.7vmin;">技3</div>
+  <div class="hit" style="left:74%; top:54%; width:10.4%; aspect-ratio:0.484;"></div>
+
+  <!-- 必杀：圆心 (0.86w, 0.42h) 半径 u*0.088 -->
+  <div class="btn" style="left:86%; top:42%; width:8.8%; aspect-ratio:0.484; border-color:#fbbf24; background:#fbbf2426; font-size:1.7vmin;">必杀</div>
+  <div class="hit" style="left:86%; top:42%; width:12.8%; aspect-ratio:0.484;"></div>
+
+  <!-- 药水：圆心 (0.93w, 0.28h) 半径 u*0.07 -->
+  <div class="btn" style="left:93%; top:28%; width:7%; aspect-ratio:0.484; border-color:#4ade80; background:#4ade8026; font-size:1.5vmin;">药</div>
+
+  <!-- 摇杆：固定提示位 (0.14w, 0.72h)，半径 u*0.13；左半屏任意按下都会成为摇杆 -->
+  <div class="btn" style="left:14%; top:72%; width:13%; aspect-ratio:0.484; border-color:#38bdf8; background:#38bdf826; font-size:1.7vmin;">摇杆</div>
+  <div class="tag" style="left:14%; top:72%; margin-top:-13%;">左半屏（x &lt; 48% 宽）<br>任意位置按下拖动 = 移动</div>
+
+  <!-- 暂停：左上角 (x<18%w, y<12%h) -->
+  <div class="btn" style="left:9%; top:6%; width:5%; aspect-ratio:0.484; border-color:#94a3b8; background:#94a3b826; font-size:1.3vmin;">暂停</div>
+
+  <!-- 右侧空白兜底区 -->
+  <div class="tag" style="left:60%; top:92%;">右侧非按钮空白区点按 = 也可触发普攻（兜底）</div>
+</div>
+
+<div class="legend">
+  <span><span class="dot" style="background:#ef4444"></span>普攻 攻(1895,820)</span>
+  <span><span class="dot" style="background:#fb923c"></span>技1 冲(1637,907)</span>
+  <span><span class="dot" style="background:#a78bfa"></span>技2 盾(1465,756)</span>
+  <span><span class="dot" style="background:#2dd4bf"></span>技3 风(1594,583)</span>
+  <span><span class="dot" style="background:#fbbf24"></span>必杀 马(1852,454)</span>
+  <span><span class="dot" style="background:#4ade80"></span>药水(2003,302)</span>
+  <span><span class="dot" style="background:#38bdf8"></span>摇杆(左半屏浮动摇杆)</span>
+</div>
+</body>
+</html>

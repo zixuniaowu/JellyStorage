@@ -1,19 +1,16 @@
 package com.jellystorage
 
 import android.app.Application
-import com.google.android.gms.ads.MobileAds
-import com.jellystorage.play.AdConfig
 import com.jellystorage.play.CrashReporter
+import com.jellystorage.play.GearArtAssets
+import com.jellystorage.play.HeroArtAssets
 
 class JellyApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
-        // 尽早初始化；失败不影响进游戏
-        try {
-            MobileAds.initialize(this) { }
-            AdConfig.appId
-        } catch (_: Throwable) {
-        }
+        GearArtAssets.initialize(this)
+        HeroArtAssets.initialize(this)
+        // Ads are initialized only after UMP has refreshed the user's consent state.
     }
 }

@@ -49,7 +49,19 @@ data class Actor(
     /** 0..0.5 damage reduction on incoming hits */
     var armor: Float = 0f,
     /** Boss 阶段 0=初 / 1=半 / 2=绝 */
-    var bossPhase: Int = 0
+    var bossPhase: Int = 0,
+    /** Chapter boss signature pattern cursor. */
+    var bossPatternStep: Int = 0,
+    /** Healer/drummer support action timer; unused by non-support actors. */
+    var supportCd: Float = 2.8f,
+    /** 精英变体：改变轮廓光和核心属性。 */
+    var eliteTrait: EnemyEliteTrait = EnemyEliteTrait.NONE,
+    /** 种类专属攻击的冷却、预警与锁定点。 */
+    var specialCd: Float = 2.5f,
+    var specialWindup: Float = 0f,
+    var specialAttack: EnemySignatureAttack = EnemySignatureAttack.NONE,
+    var specialAimX: Float = 0f,
+    var specialAimY: Float = 0f
 ) {
     fun has(st: StatusType): Boolean = statuses.any { it.type == st && it.t > 0f }
     fun powerOf(st: StatusType): Float = statuses.firstOrNull { it.type == st && it.t > 0f }?.power ?: 0f
@@ -89,7 +101,7 @@ data class FieldFx(
     var dps: Float,
     var healPerSec: Float,
     var color: Long,
-    var kind: Int = 0 // 0 poison 1 array
+    var kind: Int = 0 // 0 poison 1 array 2 cinder/fire trail 3 following poison
 
 )
 
@@ -104,6 +116,39 @@ data class Drop(
 )
 data class FloatTxt(var x: Float, var y: Float, var text: String, var life: Float, var r: Int, var g: Int, var b: Int, var scale: Float = 1f)
 data class RingFx(var x: Float, var y: Float, var r: Float, var life: Float, var maxLife: Float, var color: Long)
+data class SkillCastFx(
+    var x: Float,
+    var y: Float,
+    val name: String,
+    val glyph: String,
+    var life: Float,
+    val maxLife: Float,
+    val color: Long,
+    val ultimate: Boolean = false
+)
+data class BoltFx(
+    val x0: Float,
+    val y0: Float,
+    val x1: Float,
+    val y1: Float,
+    var life: Float,
+    val maxLife: Float,
+    val color: Long
+)
+data class EchoPulseFx(
+    var x: Float,
+    var y: Float,
+    var life: Float,
+    val maxLife: Float,
+    val radius: Float,
+    val damage: Float,
+    val color: Long,
+    val glyph: String,
+    val label: String,
+    val status: StatusType? = null,
+    val statusDuration: Float = 0f,
+    val statusPower: Float = 0f
+)
 /** Impact spark / debris particle */
 data class Particle(
     var x: Float,
@@ -134,6 +179,29 @@ data class InkMark(
     var color: Long = 0xFF1C1410,
     var r: Float = 0f
 )
+
+/** 平滑的房间难度曲线：章节与清房数共同提高强度，后期不会突然翻倍。 */
+fun arenaThreatMultiplier(threatLevel: Int, wave: Int = 0): Float {
+    val threat = threatLevel.coerceIn(0, 32).toFloat()
+    val room = 1f + threat * 0.055f + threat * threat * 0.0015f
+    return room * (1f + wave.coerceAtLeast(0) * 0.08f)
+}
+
+fun eliteSpawnChance(threatLevel: Int): Float =
+    (0.07f + threatLevel.coerceAtLeast(0) * 0.012f).coerceAtMost(0.38f)
+
+fun enemySpeedThreatMultiplier(threatLevel: Int): Float =
+    (1f + threatLevel.coerceAtLeast(0) * 0.012f).coerceAtMost(1.25f)
+
+/** 装备品质随章节推进；第一章不会直接掉终局史诗。 */
+fun maxGearRarityForThreat(threatLevel: Int): Int = when {
+    threatLevel < 5 -> 0
+    threatLevel < 15 -> 1
+    else -> 2
+}
+
+fun maxGearTierForThreat(threatLevel: Int): Int =
+    (1 + threatLevel.coerceAtLeast(0) / 5).coerceIn(1, 5)
 
 /**
  * Deep arena: multi-skill, statuses, multi-wave, enemy AI variants.
@@ -175,7 +243,15 @@ class ArenaSim(
     val overrideProc: GearProc = GearProc.NONE,
     val overrideProcPower: Float = 0f,
     /** 墨阶词缀等局内修正 */
-    val mods: CombatMods = CombatMods.NONE
+    val mods: CombatMods = CombatMods.NONE,
+    /** 本战明示挑战：改变局部规则并提供额外奖励 */
+    val roomTrial: RoomTrial? = null,
+    /** Boss 后获得的技能机制改造及阶级。 */
+    val coreInkRanks: Map<CoreInkId, Int> = emptyMap(),
+    /** 仅章节终点传入；把复用的 Boss 身体映射为五种真正不同的首领战。 */
+    val bossEncounter: BossEncounter? = null,
+    /** 当前战斗房的场地身份、构型和周期环境技。 */
+    val environment: ArenaEnvironment = ArenaEnvironment.NONE
 ) {
     private val upgrades = weaponUpgradeTable(hero)
     private val wLevel = weaponLevel.coerceIn(0, upgrades.lastIndex)
@@ -190,6 +266,7 @@ class ArenaSim(
         if (overrideProc != GearProc.NONE) overrideProc else gear.proc
     private val combatProcPower: Float =
         if (overrideProc != GearProc.NONE) overrideProcPower else gear.procPower
+    private fun coreRank(id: CoreInkId): Int = coreInkRanks.rankOf(id)
 
     val skills = skillsFor(hero)
     val player: Actor
@@ -198,6 +275,10 @@ class ArenaSim(
     val drops = ArrayList<Drop>(24)
     val floats = ArrayList<FloatTxt>(64)
     val rings = ArrayList<RingFx>(24)
+    val skillCastsFx = ArrayList<SkillCastFx>(12)
+    val bolts = ArrayList<BoltFx>(16)
+    val echoPulses = ArrayList<EchoPulseFx>(12)
+    val bossHazards = ArrayList<BossHazard>(24)
     val particles = ArrayList<Particle>(128)
     val fields = ArrayList<FieldFx>(8)
     /** 墨迹层：攻击留下，清场可落款成画 */
@@ -283,15 +364,31 @@ class ArenaSim(
         private set
     var clearBonusXp: Int = 0
         private set
+    var trialSucceeded: Boolean = false
+        private set
+    var maxCombo: Int = 0
+        private set
+    var nonBasicSkillCasts: Int = 0
+        private set
+    var playerDamageTaken: Float = 0f
+        private set
     /** 濒死「残墨」触发一次 */
     private var clutchUsed: Boolean = false
     /** 供 UI 读的最近一次 Boss 阶段台词（读后清空） */
     var bossPhaseLine: String = ""
         private set
+    var tacticalHintLine: String = ""
+        private set
 
     fun consumeBossPhaseLine(): String {
         val s = bossPhaseLine
         bossPhaseLine = ""
+        return s
+    }
+
+    fun consumeTacticalHintLine(): String {
+        val s = tacticalHintLine
+        tacticalHintLine = ""
         return s
     }
 
@@ -305,6 +402,8 @@ class ArenaSim(
     val lootedArmorIds = ArrayList<String>(4)
     private val pad = 40f
     private val prng = Random(System.nanoTime())
+    private val lootRarityCap = maxGearRarityForThreat(threatLevel)
+    private val lootTierCap = maxGearTierForThreat(threatLevel)
     private val waveList = if (waves.isEmpty()) {
         listOf(WaveDef(listOf(WaveEnemy(EnemyKind.SLIME, EnemyAi.CHASE, 50f, 8f))))
     } else waves
@@ -325,9 +424,24 @@ class ArenaSim(
     private val goldMul = (if (PassiveId.GOLD_FIND in passives) 1.25f else 1f) * mods.goldMul
     private val wuxingAmp = if (combatProc == GearProc.WUXING_AMP) combatProcPower else 0f
     private val healAmp = if (combatProc == GearProc.HEAL_AMP) 1f + combatProcPower else 1f
+    val activeGearProc: GearProc get() = combatProc
+    val gearProcCooldownMax: Float = combatProc.cooldownSeconds()
+    var gearProcCooldown: Float = 0f
+        private set
+    var gearProcPulse: Float = 0f
+        private set
+    var gearProcTriggerCount: Int = 0
+        private set
+
+    fun gearProcReadyFraction(): Float = if (gearProcCooldownMax <= 0f) 1f else {
+        (1f - gearProcCooldown / gearProcCooldownMax).coerceIn(0f, 1f)
+    }
     /** 战意：命中叠层加速普攻体感 */
     private var rageStacks: Int = 0
     private var rageT: Float = 0f
+    /** 普攻输入缓冲剩余时间 */
+    private var basicBuffer: Float = 0f
+    private var environmentTimer: Float = if (environment.active) 4.2f + environment.variant * 0.7f else 99f
 
     init {
         waveTotal = waveList.size
@@ -346,14 +460,16 @@ class ArenaSim(
             isPlayer = true
         )
         spawnWave(0)
+        roomTrial?.let {
+            float(width * 0.5f, height * 0.18f, "试炼·${it.title}", 250, 204, 21, 1.35f)
+        }
+        if (environment.active) {
+            float(width * 0.5f, height * 0.27f, environment.title, 245, 235, 220, 1.25f)
+        }
     }
 
     /** Multiplier from chapter/room threat + wave number. */
-    fun threatMul(wave: Int = waveIndex): Float {
-        val base = 1.08f + threatLevel * 0.095f
-        val waveMul = 1f + wave * 0.11f
-        return base * waveMul
-    }
+    fun threatMul(wave: Int = waveIndex): Float = arenaThreatMultiplier(threatLevel, wave)
 
     fun weaponName(): String = weaponUpgradeTable(hero)[wLevel].name
     fun skillCdLeft(slot: Int): Float = skillCd.getOrElse(slot) { 0f }
@@ -363,6 +479,11 @@ class ArenaSim(
     }
 
     fun skillUnlockLevel(slot: Int): Int = skills.getOrNull(slot)?.unlockLevel ?: 1
+
+    /** 输入层提示（未解锁技能等）：走战斗飘字通道 */
+    fun showHint(text: String) {
+        float(player.x, player.y - 60f, text, 148, 163, 184, 1.15f)
+    }
 
     fun skillReady(slot: Int): Boolean {
         if (!skillUnlocked(slot)) return false
@@ -379,6 +500,43 @@ class ArenaSim(
     fun frenzyActive(): Boolean = frenzyT > 0f
     fun ultSlot(): Int = skills.lastIndex
 
+    /** 输入层边沿触发：快速点按（DOWN/UP 同帧合并）也不会丢普攻 */
+    fun requestBasicTap() = requestTap(0)
+
+    /** 输入层边沿触发：技能点按，ready 立即出手；未就绪给飘字反馈（点了必知道发生了什么） */
+    fun requestTap(slot: Int) {
+        runCatching {
+            android.util.Log.d(
+                "JellyCast",
+                "request slot=$slot ready=${skillReady(slot)} cd=${"%.3f".format(skillCdLeft(slot))} finished=$finished dead=${player.dead}"
+            )
+        }
+        if (finished || player.dead) return
+        if (!skillUnlocked(slot)) {
+            showHint("Lv${skillUnlockLevel(slot)} 解锁此技能")
+            return
+        }
+        if (skillReady(slot)) {
+            castSkill(slot)
+            return
+        }
+        val def = skills.getOrNull(slot) ?: return
+        val isUlt = slot == skills.lastIndex
+        when {
+            // 普攻不飘字；缓冲要盖过普攻 CD（0.30~0.42s）——快速连点时落在 CD 里的那次
+            // 下一次冷却结束必出手，不能吞（曾造成「点了没反应」）
+            slot == 0 -> basicBuffer = 0.5f
+            !isUlt && mp + 0.01f < def.mp ->
+                float(player.x, player.y - 36f, "法力不足", 125, 211, 252)
+            skillCdLeft(slot) > 0f ->
+                float(player.x, player.y - 36f, "冷却 ${"%.1f".format(skillCdLeft(slot))}s", 148, 163, 184)
+        }
+    }
+
+    fun trialProgressLine(): String = roomTrial?.let {
+        "${it.objective(waveTotal)} · ${it.progress(waveTotal, fightTimer, maxCombo, nonBasicSkillCasts, playerDamageTaken, player.maxHp)}"
+    }.orEmpty()
+
     fun consumeHaptic(): Int {
         val h = hapticEvent
         hapticEvent = 0
@@ -389,14 +547,33 @@ class ArenaSim(
         dt: Float, stickX: Float, stickY: Float,
         basic: Boolean, s1: Boolean, s2: Boolean, s3: Boolean = false, s4: Boolean = false
     ) {
-        if (finished) return
+        if (finished) {
+            // 战斗已定：仅驱动余韵（粒子/飘字/光环），让结算前的画面继续"呼吸"
+            time += dt
+            tickParticles(dt)
+            tickCastFx(dt)
+            tickEchoPulses(dt)
+            updateFloats(dt)
+            var ri = 0
+            while (ri < rings.size) {
+                rings[ri].life -= dt
+                if (rings[ri].life <= 0f) rings.removeAt(ri) else ri++
+            }
+            if (shake > 0f) shake = max(0f, shake - dt * 3.6f)
+            if (impactFlash > 0f) impactFlash = max(0f, impactFlash - dt * 7f)
+            if (zoomPunch > 0f) zoomPunch = max(0f, zoomPunch - dt * 5.5f)
+            return
+        }
         // hit-stop: freeze world briefly for punchy hits
         if (hitStop > 0f) {
             hitStop -= dt
+            tickGearProcTimers(dt)
             if (shake > 0f) shake = max(0f, shake - dt * 2.8f)
             if (impactFlash > 0f) impactFlash = max(0f, impactFlash - dt * 6f)
             if (zoomPunch > 0f) zoomPunch = max(0f, zoomPunch - dt * 4f)
             tickParticles(dt * 0.4f)
+            tickCastFx(dt * 0.4f)
+            tickEchoPulses(dt * 0.4f)
             // squash still eases during freeze
             for (e in enemies) {
                 if (e.squash > 0f) e.squash = max(0f, e.squash - dt * 3.5f)
@@ -410,6 +587,7 @@ class ArenaSim(
             d *= 0.55f + 0.45f * (1f - slowMo)
         }
         time += d
+        tickGearProcTimers(d)
         if (waveAnnounce > 0f) waveAnnounce -= d
         if (moveHint > 0f) moveHint -= d
         if (shake > 0f) shake = max(0f, shake - d * 3.6f)
@@ -438,7 +616,7 @@ class ArenaSim(
         tickStatuses(player, d)
         for (i in skillCd.indices) if (skillCd[i] > 0f) skillCd[i] -= d
         // tighter mana — skills matter more
-        mp = min(maxMp, mp + (11f * mpRegenMul) * d)
+        mp = min(maxMp, mp + (11f * mpRegenMul * (roomTrial?.mpRegenMul ?: 1f)) * d)
         if (player.hitFlash > 0f) player.hitFlash -= d
         if (playerInvuln > 0f) playerInvuln -= d
         if (slashFx > 0f) slashFx -= d * 3.5f
@@ -449,6 +627,8 @@ class ArenaSim(
             if (e.hitFlash > 0f) e.hitFlash -= d
         }
         tickParticles(d)
+        tickCastFx(d)
+        tickEchoPulses(d)
 
         // snappy move: direct velocity from stick (no laggy accel)
         val slow = if (player.has(StatusType.SLOW) || player.has(StatusType.FREEZE)) 0.5f else 1f
@@ -476,7 +656,16 @@ class ArenaSim(
 
         if (!player.dead) {
             // hold-to-fire basic; one-shot skills on press edge handled by caller via held flags
-            if (basic && skillReady(0)) castSkill(0)
+            // 普攻输入缓冲：连点落在攻击间隔里不再被吞掉（0.18s 内冷却一好立即出手）
+            if (basic) {
+                if (skillReady(0)) castSkill(0) else basicBuffer = 0.18f
+            } else if (basicBuffer > 0f) {
+                basicBuffer -= dt
+                if (skillReady(0)) {
+                    castSkill(0)
+                    basicBuffer = 0f
+                }
+            }
             if (s1 && skillReady(1)) castSkill(1)
             if (s2 && skillReady(2)) castSkill(2)
             if (s3 && skillReady(3)) castSkill(3)
@@ -484,6 +673,8 @@ class ArenaSim(
         }
 
         updateEnemies(d)
+        tickArenaEnvironment(d)
+        tickBossHazards(d)
         updateShots(d)
         updateFields(d)
         updateDrops(d)
@@ -515,6 +706,98 @@ class ArenaSim(
                 settleInkLandscape()
             }
         }
+    }
+
+    private fun tickArenaEnvironment(d: Float) {
+        if (!environment.active || finished || waveGap > 0f) return
+        if (enemies.none { !it.dead }) {
+            // 普通房清场即安全，不能在胜利结算前被残留环境预警补刀。
+            bossHazards.clear()
+            return
+        }
+        environmentTimer -= d
+        if (environmentTimer > 0f) return
+        environmentTimer = environment.interval * (0.92f + prng.nextFloat() * 0.16f)
+        val warning = when (environment.pattern) {
+            ArenaHazardPattern.CIRCLE -> 1.05f
+            ArenaHazardPattern.RING -> 1.15f
+            ArenaHazardPattern.LINE -> 0.95f
+            ArenaHazardPattern.NONE -> return
+        }
+        val damage = player.maxHp * environment.damageRatio
+        val label = environment.title
+        when (environment.pattern) {
+            ArenaHazardPattern.CIRCLE -> {
+                val px = (player.x + player.vx * 0.38f).coerceIn(pad + 70f * u, width - pad - 70f * u)
+                val py = (player.y + player.vy * 0.38f).coerceIn(pad + 70f * u, height - pad - 70f * u)
+                bossHazards.add(
+                    BossHazard(
+                        BossHazardShape.CIRCLE, px, py,
+                        outerRadius = (62f + environment.variant * 9f) * u,
+                        life = warning, damage = damage, color = environment.color,
+                        label = label, slowOnHit = environment.slowOnHit
+                    )
+                )
+            }
+            ArenaHazardPattern.RING -> {
+                val centerX = width * (0.38f + environment.variant * 0.12f)
+                val centerY = height * (0.42f + (environment.visualSeed % 3) * 0.08f)
+                bossHazards.add(
+                    BossHazard(
+                        BossHazardShape.RING, centerX, centerY,
+                        outerRadius = (165f + environment.variant * 18f) * u,
+                        innerRadius = (86f + environment.variant * 10f) * u,
+                        life = warning, damage = damage, color = environment.color,
+                        label = label, slowOnHit = environment.slowOnHit
+                    )
+                )
+            }
+            ArenaHazardPattern.LINE -> {
+                val horizontal = ((environment.visualSeed + environmentTimer.toInt()) and 1) == 0
+                val lane = if (horizontal) {
+                    val y = height * (0.28f + prng.nextFloat() * 0.44f)
+                    BossHazard(
+                        BossHazardShape.LINE, pad, y, width - pad, y,
+                        width = (50f + environment.variant * 8f) * u,
+                        life = warning, damage = damage, color = environment.color,
+                        label = label, slowOnHit = environment.slowOnHit
+                    )
+                } else {
+                    val x = width * (0.26f + prng.nextFloat() * 0.48f)
+                    BossHazard(
+                        BossHazardShape.LINE, x, pad, x, height - pad,
+                        width = (50f + environment.variant * 8f) * u,
+                        life = warning, damage = damage, color = environment.color,
+                        label = label, slowOnHit = environment.slowOnHit
+                    )
+                }
+                bossHazards.add(lane)
+            }
+            ArenaHazardPattern.NONE -> Unit
+        }
+    }
+
+    private fun tickGearProcTimers(d: Float) {
+        if (gearProcCooldown > 0f) gearProcCooldown = max(0f, gearProcCooldown - d)
+        if (gearProcPulse > 0f) gearProcPulse = max(0f, gearProcPulse - d * 1.8f)
+    }
+
+    private fun markGearProcTriggered() {
+        if (combatProc == GearProc.NONE) return
+        gearProcCooldown = gearProcCooldownMax
+        gearProcPulse = 1f
+        gearProcTriggerCount++
+        val color = combatProc.fxColor()
+        if (skillCastsFx.size >= 10) skillCastsFx.removeAt(0)
+        skillCastsFx.add(
+            SkillCastFx(
+                player.x, player.y, "装备·${combatProc.title}", combatProc.title.take(1),
+                0.55f, 0.55f, color, false
+            )
+        )
+        rings.add(RingFx(player.x, player.y, player.radius * 2.2f, 0.36f, 0.36f, color))
+        hapticEvent = max(hapticEvent, 1)
+        impactFlash = max(impactFlash, 0.08f)
     }
 
     private fun pushInk(mark: InkMark) {
@@ -795,23 +1078,27 @@ class ArenaSim(
         drops.clear()
     }
 
-    /** 清场保底：至少一把武器机会 + 常掉果实 */
+    /** 清场奖励：首房保底入门装；之后由精英、评价与墨阶决定，不再每房塞一把武器。 */
     private fun grantClearLoot() {
-        if (lootedWeaponIds.isEmpty()) {
-            WeaponCatalog.randomDrop(hero)?.let { w ->
-                lootedWeaponIds.add(w.id)
-                float(player.x, player.y - 50f, "清场装备:${w.name}", 251, 191, 36, 1.35f)
+        val noGear = lootedWeaponIds.isEmpty() && lootedArmorIds.isEmpty() &&
+            lootedRingIds.isEmpty() && lootedBootsIds.isEmpty()
+        val clearGearChance = 0.28f + mods.dropBonus.coerceAtMost(0.25f)
+        if (noGear && (threatLevel <= 1 || clearGrade == "S" || prng.nextFloat() < clearGearChance)) {
+            if (prng.nextFloat() < 0.58f) {
+                WeaponCatalog.randomDrop(hero, lootRarityCap)?.let { w ->
+                    lootedWeaponIds.add(w.id)
+                    float(player.x, player.y - 50f, "清场装备:${w.name}", 251, 191, 36, 1.35f)
+                }
+            } else {
+                ArmorCatalog.randomDrop(hero, lootRarityCap, lootTierCap)?.let { a ->
+                    lootedArmorIds.add(a.id)
+                    float(player.x, player.y - 50f, "清场防具:${a.name}", 134, 239, 172, 1.3f)
+                }
             }
         }
-        if (lootedArmorIds.isEmpty() && prng.nextFloat() < 0.4f) {
-            ArmorCatalog.randomDrop(hero)?.let { a ->
-                lootedArmorIds.add(a.id)
-                float(player.x, player.y - 64f, "清场防具:${a.name}", 134, 239, 172, 1.2f)
-            }
-        }
-        // 高评价额外武器
-        if (clearGrade == "S" || (clearGrade == "A" && prng.nextFloat() < 0.35f)) {
-            WeaponCatalog.randomDrop(hero)?.let { w ->
+        // 神来之笔偶尔再给一件武器，不让普通房奖励超过精英/Boss。
+        if (clearGrade == "S" && prng.nextFloat() < 0.35f) {
+            WeaponCatalog.randomDrop(hero, lootRarityCap)?.let { w ->
                 if (w.id !in lootedWeaponIds) {
                     lootedWeaponIds.add(w.id)
                     float(player.x, player.y - 70f, "评价奖励:${w.name}", 253, 224, 71, 1.2f)
@@ -857,8 +1144,13 @@ class ArenaSim(
             "B" -> 6
             else -> 0
         }
-        clearBonusGold = (gradeGold * mods.clearRewardMul * mods.goldMul).toInt()
-        clearBonusXp = (gradeXp * mods.clearRewardMul * mods.xpMul).toInt()
+        trialSucceeded = roomTrial?.succeeded(
+            waveTotal, fightTimer, maxCombo, nonBasicSkillCasts, playerDamageTaken, player.maxHp
+        ) == true
+        val trialGold = if (trialSucceeded) roomTrial?.rewardGold ?: 0 else 0
+        val trialXp = if (trialSucceeded) roomTrial?.rewardXp ?: 0 else 0
+        clearBonusGold = ((gradeGold + trialGold) * mods.clearRewardMul * mods.goldMul).toInt()
+        clearBonusXp = ((gradeXp + trialXp) * mods.clearRewardMul * mods.xpMul).toInt()
         goldEarned += clearBonusGold
         xpEarned += clearBonusXp
         val gradeName = when (clearGrade) {
@@ -869,6 +1161,13 @@ class ArenaSim(
         }
         float(width * 0.5f, height * 0.28f, gradeName, 250, 204, 21, 1.6f)
         if (clearBonusGold > 0) float(width * 0.5f, height * 0.36f, "奖励 +${clearBonusGold}金 +${clearBonusXp}经验", 167, 243, 208, 1.2f)
+        roomTrial?.let { trial ->
+            if (trialSucceeded) {
+                float(width * 0.5f, height * 0.44f, "${trial.title}·达成!", 52, 211, 153, 1.35f)
+            } else {
+                float(width * 0.5f, height * 0.44f, "${trial.title}·未达成", 148, 163, 184, 1.05f)
+            }
+        }
     }
 
     private fun spawnWave(idx: Int) {
@@ -876,7 +1175,13 @@ class ArenaSim(
         val wave = waveList[idx]
         val tm = threatMul(idx)
         for (we in wave.enemies) {
-            val elite = we.elite || (idx >= 2 && prng.nextFloat() < 0.16f + threatLevel * 0.025f + mods.eliteChanceBonus)
+            val elite = we.elite || (
+                idx >= 2 && prng.nextFloat() <
+                    (eliteSpawnChance(threatLevel) + mods.eliteChanceBonus).coerceAtMost(0.48f)
+                )
+            val eliteTrait = if (elite) {
+                EnemyEliteTrait.entries[1 + prng.nextInt(EnemyEliteTrait.entries.size - 1)]
+            } else EnemyEliteTrait.NONE
             val kindMulHp = when (we.kind) {
                 EnemyKind.SPIKE_SLIME -> 1.35f
                 EnemyKind.BEETLE, EnemyKind.SKELETON -> 1.3f
@@ -911,10 +1216,21 @@ class ArenaSim(
             val eliteHp = if (elite) 1.55f else 1f
             val eliteAtk = if (elite) 1.28f else 1f
             val eliteArmor = if (elite) 0.12f else 0f
-            val hp = we.hp * tm * kindMulHp * eliteHp * 1.12f * mods.enemyHpMul
-            val atk = we.atk * tm * kindMulAtk * eliteAtk * 1.12f * mods.enemyAtkMul
-            val spd = we.speed * u * kindMulSpd * (1f + threatLevel * 0.025f) *
-                (if (elite) 1.1f else 1f) * mods.enemySpdMul
+            val traitHp = if (eliteTrait == EnemyEliteTrait.BULWARK) 1.22f else 1f
+            val traitAtk = if (eliteTrait == EnemyEliteTrait.FRENZIED) 1.18f else 1f
+            val traitSpd = when (eliteTrait) {
+                EnemyEliteTrait.SWIFT -> 1.20f
+                EnemyEliteTrait.FRENZIED -> 1.08f
+                else -> 1f
+            }
+            val traitArmor = if (eliteTrait == EnemyEliteTrait.BULWARK) 0.08f else 0f
+            val hp = we.hp * tm * kindMulHp * eliteHp * traitHp * 1.12f * mods.enemyHpMul *
+                (roomTrial?.enemyHpMul ?: 1f)
+            val atk = we.atk * tm * kindMulAtk * eliteAtk * traitAtk * 1.12f * mods.enemyAtkMul *
+                (roomTrial?.enemyAtkMul ?: 1f)
+            val spd = we.speed * u * kindMulSpd * enemySpeedThreatMultiplier(threatLevel) *
+                (if (elite) 1.1f else 1f) * traitSpd * mods.enemySpdMul *
+                (roomTrial?.enemySpeedMul ?: 1f)
             enemies.add(
                 Actor(
                     x = width * (0.48f + prng.nextFloat() * 0.38f),
@@ -926,23 +1242,49 @@ class ArenaSim(
                     speed = spd,
                     isPlayer = false,
                     attackCd = prng.nextFloat() * 0.45f,
+                    supportCd = 2.4f + prng.nextFloat() * 1.8f,
+                    specialCd = 1.8f + prng.nextFloat() * 2.4f,
                     kind = we.kind,
                     element = we.kind.element(),
                     ai = we.ai,
                     elite = elite,
+                    eliteTrait = eliteTrait,
                     thorns = when (we.kind) {
                         EnemyKind.SPIKE_SLIME -> 0.28f
                         EnemyKind.BEETLE -> if (elite) 0.12f else 0.06f
                         else -> 0f
                     },
-                    armor = (kindArmor + eliteArmor).coerceIn(0f, 0.48f)
+                    armor = (kindArmor + eliteArmor + traitArmor).coerceIn(0f, 0.48f)
                 )
             )
-            if (elite) float(enemies.last().x, enemies.last().y - 30f, "精英!", 251, 146, 60, 1.1f)
+            if (elite) {
+                val trait = enemies.last().eliteTrait
+                val (r, g, b) = when (trait) {
+                    EnemyEliteTrait.SWIFT -> Triple(56, 189, 248)
+                    EnemyEliteTrait.BULWARK -> Triple(251, 191, 36)
+                    EnemyEliteTrait.FRENZIED -> Triple(239, 68, 68)
+                    else -> Triple(251, 146, 60)
+                }
+                float(
+                    enemies.last().x, enemies.last().y - 30f,
+                    "精英·${trait.title}", r, g, b, 1.15f
+                )
+            }
+        }
+        val roles = enemies.map { it.kind.tacticalRole() }
+            .filter { it != EnemyTacticalRole.NONE }
+            .distinct()
+        tacticalHintLine = when {
+            roles.isEmpty() -> ""
+            roles.size == 1 -> roles.first().hint
+            else -> "战术目标：${roles.joinToString(" / ") { "${it.badge}${it.title}" }}"
         }
     }
 
     private fun castSkill(slot: Int) {
+        runCatching {
+            android.util.Log.d("JellyCast", "cast slot=$slot hero=$hero at=(${player.x.toInt()},${player.y.toInt()})")
+        }
         val def = skills.getOrNull(slot) ?: return
         if (!skillUnlocked(slot)) {
             if (slot != 0) float(player.x, player.y - 40f, "Lv${def.unlockLevel} 解锁「${def.name}」", 148, 163, 184, 1.1f)
@@ -962,6 +1304,22 @@ class ArenaSim(
             shake = max(shake, 0.35f)
         }
         skillCd[slot] = def.cd * (1f - cdr) * (if (freeUlt) 0.75f else 1f)
+        if (slot != 0) {
+            nonBasicSkillCasts++
+            if (skillCastsFx.size >= 10) skillCastsFx.removeAt(0)
+            val castColor = when (hero) {
+                HeroClass.WARRIOR -> if (isUlt) 0xFFFBBF24 else 0xFFFB923C
+                HeroClass.MAGE -> if (slot == 1) 0xFF7DD3FC else if (slot == 3) 0xFFFF6B35 else 0xFFA78BFA
+                HeroClass.TAOIST -> if (slot == 1) 0xFFA3E635 else 0xFF4ADE80
+            }
+            val castLife = if (isUlt) 1.05f else 0.62f
+            skillCastsFx.add(
+                SkillCastFx(player.x, player.y, def.name, def.glyph, castLife, castLife, castColor, isUlt)
+            )
+            hapticEvent = max(hapticEvent, if (isUlt) 6 else 5)
+            impactFlash = max(impactFlash, if (isUlt) 0.38f else 0.12f)
+            zoomPunch = max(zoomPunch, if (isUlt) 0.3f else 0.08f)
+        }
         val target = nearestEnemy()
         val sm = skillMul
         when (hero) {
@@ -1006,6 +1364,14 @@ class ArenaSim(
             }
         }
         burst(player.x, player.y, 18, 0xFFFB923C, 200f * u, 0.4f)
+        val echoRank = coreRank(CoreInkId.WARRIOR_WHIRL_ECHO)
+        if (echoRank > 0) {
+            scheduleEcho(
+                player.x, player.y, 0.52f, 155f * u,
+                player.atk * (0.5f + echoRank * 0.18f) * sm,
+                0xFFFB923C, "回", "回锋"
+            )
+        }
         slashFx = 1f
         slashWidth = 1.5f
     }
@@ -1024,6 +1390,18 @@ class ArenaSim(
             }
         }
         float(tx, ty - 30f, "炎爆!", 255, 107, 53, 1.3f)
+        val cinderRank = coreRank(CoreInkId.MAGE_CINDER_FIELD)
+        if (cinderRank > 0) {
+            val life = 2.4f + cinderRank * 0.55f
+            fields.add(
+                FieldFx(
+                    tx, ty, (72f + cinderRank * 7f) * u, life, life,
+                    dps = player.atk * (0.24f + cinderRank * 0.07f) * sm,
+                    healPerSec = 0f, color = 0xFFFF6B35, kind = 2
+                )
+            )
+            float(tx, ty - 50f, "余烬成阵·${cinderRank}阶", 255, 107, 53, 0.95f)
+        }
         shake = max(shake, 0.35f)
     }
 
@@ -1044,6 +1422,15 @@ class ArenaSim(
             }
         }
         burst(cx, cy, 14, 0xFFA78BFA, 120f * u, 0.4f)
+        val echoRank = coreRank(CoreInkId.TAOIST_SEAL_ECHO)
+        if (echoRank > 0) {
+            scheduleEcho(
+                cx, cy, 0.62f, (108f + echoRank * 4f) * u,
+                player.atk * (0.42f + echoRank * 0.16f) * sm,
+                0xFFA78BFA, "镇", "回符",
+                StatusType.FREEZE, 0.55f + echoRank * 0.12f, 1f
+            )
+        }
     }
 
     /** Warrior S2: defensive identity — shield + reflect + brief regen. */
@@ -1057,6 +1444,19 @@ class ArenaSim(
         float(player.x, player.y - 44f, "铁壁!", 251, 191, 36, 1.25f)
         float(player.x, player.y - 24f, "护盾·反伤", 253, 224, 71, 1.0f)
         burst(player.x, player.y, 14, 0xFFFBBF24, 100f * u, 0.35f)
+        val burstRank = coreRank(CoreInkId.WARRIOR_BASTION_BURST)
+        if (burstRank > 0) {
+            val radius = (95f + burstRank * 12f) * u
+            var first = true
+            enemies.filter { !it.dead && dist(player.x, player.y, it.x, it.y) <= radius + it.radius }
+                .forEach { enemy ->
+                    damageEnemy(enemy, player.atk * (0.48f + burstRank * 0.2f), heavy = first)
+                    enemy.applyStatus(StatusType.VULN, 1.8f, 0.12f + burstRank * 0.02f)
+                    first = false
+                }
+            rings.add(RingFx(player.x, player.y, radius, 0.48f, 0.48f, 0xFFFBBF24))
+            float(player.x, player.y - 62f, "金城反震·${burstRank}阶", 253, 224, 71, 1.0f)
+        }
     }
 
     /** Mage S2: chain lightning — bounces between enemies. */
@@ -1071,7 +1471,10 @@ class ArenaSim(
         val hit = mutableSetOf<Actor>()
         var prevX = player.x
         var prevY = player.y
-        while (cur != null && hops < 5 && hit.size < living.size) {
+        val branchRank = coreRank(CoreInkId.MAGE_STORM_BRANCH)
+        val maxHops = 5 + branchRank
+        val searchRange = (220f + branchRank * 28f) * u
+        while (cur != null && hops < maxHops && hit.size < living.size) {
             hit.add(cur)
             damageEnemy(cur, player.atk * (1.05f - hops * 0.08f), heavy = hops == 0)
             cur.applyStatus(StatusType.VULN, 2.2f, 0.15f)
@@ -1082,6 +1485,7 @@ class ArenaSim(
             val mx = (prevX + cur.x) * 0.5f
             val my = (prevY + cur.y) * 0.5f
             rings.add(RingFx(mx, my, 12f * u, 0.15f, 0.15f, 0xFFE9D5FF))
+            bolts.add(BoltFx(prevX, prevY, cur.x, cur.y, 0.24f, 0.24f, 0xFFE9D5FF))
             float(cur.x, cur.y - cur.radius - 6f, if (hops == 0) "雷击!" else "连锁!", 167, 139, 250, 0.95f)
             prevX = cur.x
             prevY = cur.y
@@ -1089,20 +1493,29 @@ class ArenaSim(
             val from = cur
             cur = living
                 .filter { it !in hit }
-                .filter { dist(from.x, from.y, it.x, it.y) < 220f * u }
+                .filter { dist(from.x, from.y, it.x, it.y) < searchRange }
                 .minByOrNull { dist(from.x, from.y, it.x, it.y) }
         }
-        float(player.x, player.y - 44f, "链雷 x$hops", 167, 139, 250, 1.2f)
+        val branch = if (branchRank > 0) " · 雷枝${branchRank}阶" else ""
+        float(player.x, player.y - 44f, "链雷 x$hops$branch", 167, 139, 250, 1.2f)
         shake = max(shake, 0.25f)
     }
 
     /** Taoist S2: big heal + cleanse control. */
     private fun springHeal() {
         val amount = (player.maxHp * 0.32f + 20f + wLevel * 6f) * healAmp
+        val missingBefore = max(0f, player.maxHp - player.hp)
         healPlayer(amount)
         // cleanse slow/freeze on self
         player.statuses.removeAll { it.type == StatusType.SLOW || it.type == StatusType.FREEZE || it.type == StatusType.POISON || it.type == StatusType.BURN }
         player.applyStatus(StatusType.SHIELD, 1.8f, player.maxHp * 0.08f)
+        val overflowRank = coreRank(CoreInkId.TAOIST_SPRING_OVERFLOW)
+        val overflow = max(0f, amount - missingBefore)
+        if (overflowRank > 0 && overflow > 0f) {
+            val shield = overflow * (0.45f + overflowRank * 0.15f)
+            player.applyStatus(StatusType.SHIELD, 3.0f + overflowRank * 0.25f, shield)
+            float(player.x, player.y - 68f, "溢脉护盾 +${shield.toInt()}", 167, 243, 208, 1.0f)
+        }
         healPulse = 0.9f
         rings.add(RingFx(player.x, player.y, player.radius * 3f, 0.55f, 0.55f, 0xFF4ADE80))
         rings.add(RingFx(player.x, player.y, player.radius * 2f, 0.5f, 0.5f, 0xFF86EFAC))
@@ -1201,6 +1614,8 @@ class ArenaSim(
     private fun warriorDash(target: Actor?) {
         val ang = aimAngle(target)
         val dist = 170f * u
+        val startX = player.x
+        val startY = player.y
         // trail particles along dash
         for (i in 0..5) {
             val t = i / 5f
@@ -1231,6 +1646,26 @@ class ArenaSim(
         }
         float(player.x, player.y - 36f, "冲锋!", 248, 113, 113, 1.3f)
         rings.add(RingFx(player.x, player.y, 50f * u, 0.35f, 0.35f, 0xFFFF6B8A))
+        val trailRank = coreRank(CoreInkId.WARRIOR_FIRE_TRAIL)
+        if (trailRank > 0) {
+            val segments = 3 + trailRank.coerceAtMost(2)
+            val life = 2.1f + trailRank * 0.48f
+            repeat(segments) { index ->
+                val q = (index + 0.5f) / segments
+                fields.add(
+                    FieldFx(
+                        startX + (player.x - startX) * q,
+                        startY + (player.y - startY) * q,
+                        (29f + trailRank * 3f) * u,
+                        life, life,
+                        dps = player.atk * (0.18f + trailRank * 0.055f),
+                        healPerSec = 0f, color = 0xFFEF4444, kind = 2
+                    )
+                )
+            }
+            leaveInkStroke(startX, startY, player.x, player.y, (12f + trailRank * 2f) * u, life + 8f, 0xCCB91C1C)
+            float(player.x, player.y - 54f, "赤线走笔·${trailRank}阶", 248, 113, 113, 0.95f)
+        }
     }
 
     private fun fireball(target: Actor?, dmg: Float, st: StatusType?, stT: Float, stP: Float) {
@@ -1266,15 +1701,17 @@ class ArenaSim(
     }
 
     private fun poisonMist() {
-        val rr = 120f * u
+        val wanderingRank = coreRank(CoreInkId.TAOIST_WANDERING_MIST)
+        val rr = (120f + wanderingRank * 7f) * u
+        val life = 5.0f + wanderingRank * 0.55f
         // strong field DoT — poison is the identity
         fields.add(
             FieldFx(
-                player.x, player.y, rr, 5.0f, 5.0f,
-                dps = player.atk * 0.85f,
+                player.x, player.y, rr, life, life,
+                dps = player.atk * (0.85f + wanderingRank * 0.08f),
                 healPerSec = 0f,
                 color = 0xFFA3E635,
-                kind = 0
+                kind = if (wanderingRank > 0) 3 else 0
             )
         )
         rings.add(RingFx(player.x, player.y, rr, 0.55f, 0.55f, 0xFFA3E635))
@@ -1292,7 +1729,8 @@ class ArenaSim(
                 n++
             }
         }
-        float(player.x, player.y - 44f, "毒雾 · 中毒$n", 163, 230, 53, 1.2f)
+        val wandering = if (wanderingRank > 0) " · 随身${wanderingRank}阶" else ""
+        float(player.x, player.y - 44f, "毒雾 · 中毒$n$wandering", 163, 230, 53, 1.2f)
         burst(player.x, player.y, 20, 0xFFA3E635, 150f * u, 0.45f)
     }
 
@@ -1344,6 +1782,15 @@ class ArenaSim(
             }
         }
         float(player.x, player.y - 44f, "冰环 · 冻结$frozen", 125, 211, 252, 1.2f)
+        val frostRank = coreRank(CoreInkId.MAGE_TWIN_FROST)
+        if (frostRank > 0) {
+            scheduleEcho(
+                player.x, player.y, 0.56f, r * 1.06f,
+                player.atk * (0.42f + frostRank * 0.14f),
+                0xFF7DD3FC, "霜", "寒月再临",
+                StatusType.FREEZE, 0.55f + frostRank * 0.16f, 1f
+            )
+        }
         burst(player.x, player.y, 22, 0xFF7DD3FC, 160f * u, 0.45f)
         shake = max(shake, 0.22f)
     }
@@ -1377,11 +1824,70 @@ class ArenaSim(
         }
     }
 
+    private fun scheduleEcho(
+        x: Float,
+        y: Float,
+        delay: Float,
+        radius: Float,
+        damage: Float,
+        color: Long,
+        glyph: String,
+        label: String,
+        status: StatusType? = null,
+        statusDuration: Float = 0f,
+        statusPower: Float = 0f
+    ) {
+        echoPulses.add(
+            EchoPulseFx(
+                x, y, delay, delay, radius, damage, color, glyph, label,
+                status, statusDuration, statusPower
+            )
+        )
+    }
+
+    private fun tickEchoPulses(d: Float) {
+        var index = 0
+        while (index < echoPulses.size) {
+            val pulse = echoPulses[index]
+            pulse.life -= d
+            if (pulse.life > 0f) {
+                index++
+                continue
+            }
+            var first = true
+            for (enemy in enemies) {
+                if (enemy.dead || dist(pulse.x, pulse.y, enemy.x, enemy.y) > pulse.radius + enemy.radius) continue
+                damageEnemy(enemy, pulse.damage, heavy = first)
+                pulse.status?.let { status ->
+                    enemy.applyStatus(status, pulse.statusDuration, pulse.statusPower)
+                    if (status == StatusType.FREEZE) {
+                        enemy.vx = 0f; enemy.vy = 0f
+                        enemy.chargeVx = 0f; enemy.chargeVy = 0f
+                    }
+                }
+                first = false
+            }
+            rings.add(RingFx(pulse.x, pulse.y, pulse.radius, 0.48f, 0.48f, pulse.color))
+            rings.add(RingFx(pulse.x, pulse.y, pulse.radius * 0.62f, 0.4f, 0.4f, pulse.color))
+            burst(pulse.x, pulse.y, 16, pulse.color, 155f * u, 0.4f)
+            float(pulse.x, pulse.y - pulse.radius * 0.55f, pulse.label, 245, 235, 220, 1.15f)
+            shake = max(shake, 0.25f)
+            impactFlash = max(impactFlash, 0.16f)
+            hapticEvent = max(hapticEvent, 5)
+            echoPulses.removeAt(index)
+        }
+    }
+
     private fun updateFields(d: Float) {
         var i = 0
         while (i < fields.size) {
             val f = fields[i]
             f.life -= d
+            if (f.kind == 3) {
+                val follow = (3.6f * d).coerceIn(0f, 1f)
+                f.x += (player.x - f.x) * follow
+                f.y += (player.y - f.y) * follow
+            }
             // pulse ring visual
             if ((f.life * 6f).toInt() != ((f.life + d) * 6f).toInt()) {
                 rings.add(RingFx(f.x, f.y, f.r * 0.95f, 0.22f, 0.22f, f.color))
@@ -1393,9 +1899,11 @@ class ArenaSim(
                 if (e.dead) continue
                 if (dist(f.x, f.y, e.x, e.y) <= f.r + e.radius) {
                     e.hp -= f.dps * d
-                    if (f.kind == 0) {
+                    if (f.kind == 0 || f.kind == 3) {
                         e.applyStatus(StatusType.POISON, 1.2f, player.atk * 0.4f)
                         e.applyStatus(StatusType.SLOW, 0.5f, 0.3f)
+                    } else if (f.kind == 2) {
+                        e.applyStatus(StatusType.BURN, 1.1f, player.atk * 0.22f * burnAmp)
                     }
                     if (e.hp <= 0f && !e.dead) killEnemy(e)
                 }
@@ -1419,6 +1927,8 @@ class ArenaSim(
             if (e.dead) continue
             tickStatuses(e, d)
             if (e.attackCd > 0f) e.attackCd -= d
+            if (e.supportCd > 0f) e.supportCd -= d
+            if (e.specialCd > 0f) e.specialCd -= d
             if (e.hitStun > 0f) continue // still recovering from hit
             val dx = player.x - e.x
             val dy = player.y - e.y
@@ -1426,6 +1936,8 @@ class ArenaSim(
             e.facing = if (dx >= 0f) 1f else -1f
             val slowed = if (e.has(StatusType.SLOW) || e.has(StatusType.FREEZE)) 0.45f else 1f
             if (e.has(StatusType.FREEZE)) continue
+
+            tickEnemySupport(e)
 
             // low-HP enrage (once)
             if (!e.enraged && e.hp < e.maxHp * 0.32f) {
@@ -1466,9 +1978,12 @@ class ArenaSim(
                     }
                 }
             }
+            // 每种普通怪拥有独立的可预警招牌攻击；预警阶段停步，给玩家明确反应窗口。
+            if (e.ai != EnemyAi.BOSS && tickEnemySignatureAttack(e, d, dist)) continue
             val rage = if (e.enraged) 1.12f else 1f
+            val supportHaste = if (e.has(StatusType.RAGE)) 1.22f else 1f
             val phaseMul = 1f + e.bossPhase * 0.06f
-            val spd = e.speed * slowed * rage * phaseMul
+            val spd = e.speed * slowed * rage * supportHaste * phaseMul
 
             when (e.ai) {
                 EnemyAi.CHASE -> {
@@ -1588,8 +2103,20 @@ class ArenaSim(
                         e.x = (e.x + e.vx * d).coerceIn(pad + e.radius, width - pad - e.radius)
                         e.y = (e.y + e.vy * d).coerceIn(pad + e.radius, height - pad - e.radius)
                         if (e.attackCd <= 0f) {
-                            val roll = prng.nextFloat()
-                            when {
+                            val pattern = e.bossPatternStep++ % 4
+                            val signature = bossEncounter?.let { encounter ->
+                                when (pattern) {
+                                    0 -> encounter.moveA
+                                    2 -> if (phase >= 1) encounter.moveB else encounter.moveA
+                                    else -> null
+                                }
+                            }
+                            if (signature != null) {
+                                castSignatureBossMove(e, signature)
+                                e.attackCd = if (phase >= 2) 1.25f else 1.55f
+                            } else {
+                                val roll = prng.nextFloat()
+                                when {
                                 roll < 0.28f - phase * 0.04f -> {
                                     val rr = (130f + phase * 25f) * u
                                     rings.add(RingFx(e.x, e.y, rr, 0.42f, 0.42f, 0xFFC084FC))
@@ -1639,6 +2166,7 @@ class ArenaSim(
                                     }
                                     e.attackCd = if (e.enraged) 1.1f else 1.35f
                                 }
+                                }
                             }
                         }
                     }
@@ -1647,9 +2175,347 @@ class ArenaSim(
         }
     }
 
+    /** 返回 true 表示本帧处于招牌攻击预警/出招，暂停常规 AI。 */
+    private fun tickEnemySignatureAttack(e: Actor, d: Float, playerDistance: Float): Boolean {
+        if (e.specialAttack != EnemySignatureAttack.NONE) {
+            e.vx = 0f
+            e.vy = 0f
+            e.specialWindup -= d
+            if (e.specialWindup <= 0f) executeEnemySignatureAttack(e, e.specialAttack)
+            return true
+        }
+        if (e.specialCd > 0f) return false
+        // 不打断冲锋状态机；冲锋落地后再进入种类招牌攻击。
+        if (e.windup > 0f || e.chargeVx != 0f || e.chargeVy != 0f) return false
+        val attack = e.kind.signatureAttack()
+        if (attack == EnemySignatureAttack.NONE) return false
+        val triggerRange = when (attack) {
+            EnemySignatureAttack.SLIME_POUNCE -> 190f
+            EnemySignatureAttack.PINK_BURST -> 270f
+            EnemySignatureAttack.SPIKE_VOLLEY -> 330f
+            EnemySignatureAttack.BAT_SONIC -> 390f
+            EnemySignatureAttack.SKELETON_CLEAVE -> 155f
+            EnemySignatureAttack.GOBLIN_BOMB -> 330f
+            EnemySignatureAttack.RAT_DASH -> 245f
+            EnemySignatureAttack.WISP_RING -> 370f
+            EnemySignatureAttack.NONE -> 0f
+        } * u
+        if (playerDistance > triggerRange) return false
+        e.specialAttack = attack
+        e.specialWindup = attack.windup
+        // 锁定短期预判位置，预警线与实际落点一致，躲开后不会被攻击偷偷追踪。
+        e.specialAimX = (player.x + player.vx * 0.22f).coerceIn(pad, width - pad)
+        e.specialAimY = (player.y + player.vy * 0.22f).coerceIn(pad, height - pad)
+        float(e.x, e.y - e.radius - 12f, attack.title, 251, 191, 36, 0.9f)
+        return true
+    }
+
+    private fun executeEnemySignatureAttack(e: Actor, attack: EnemySignatureAttack) {
+        val ax = e.specialAimX - e.x
+        val ay = e.specialAimY - e.y
+        val al = sqrt(ax * ax + ay * ay).coerceAtLeast(1f)
+        val nx = ax / al
+        val ny = ay / al
+        val elitePower = if (e.elite) 1.12f else 1f
+
+        fun shot(angle: Float, speed: Float, damage: Float, style: Int, status: StatusType? = null, statusT: Float = 0f) {
+            shots.add(
+                Shot(
+                    e.x + cos(angle) * e.radius, e.y + sin(angle) * e.radius,
+                    cos(angle) * speed * u, sin(angle) * speed * u,
+                    2.4f, 11f * u, e.atk * damage * elitePower, false, style,
+                    status = status, statusT = statusT
+                )
+            )
+        }
+
+        when (attack) {
+            EnemySignatureAttack.SLIME_POUNCE -> {
+                e.x = (e.x + nx * 92f * u).coerceIn(pad + e.radius, width - pad - e.radius)
+                e.y = (e.y + ny * 92f * u).coerceIn(pad + e.radius, height - pad - e.radius)
+                if (dist(e.x, e.y, player.x, player.y) < e.radius + player.radius + 42f * u) {
+                    contactHit(e, e.atk * 1.28f * elitePower)
+                }
+                rings.add(RingFx(e.x, e.y, 72f * u, 0.34f, 0.34f, attack.color))
+                e.squash = 0.9f
+            }
+            EnemySignatureAttack.PINK_BURST -> {
+                val center = atan2(ay, ax)
+                for (k in -2..2) shot(center + k * 0.2f, 285f, 0.72f, 11)
+            }
+            EnemySignatureAttack.SPIKE_VOLLEY -> {
+                for (k in 0..7) shot(k * (PI.toFloat() / 4f), 260f, 0.68f, 8)
+                rings.add(RingFx(e.x, e.y, 100f * u, 0.42f, 0.42f, attack.color))
+            }
+            EnemySignatureAttack.BAT_SONIC -> {
+                val center = atan2(ay, ax)
+                for (k in -1..1) shot(center + k * 0.22f, 335f, 0.7f, 7, StatusType.SLOW, 1.15f)
+            }
+            EnemySignatureAttack.SKELETON_CLEAVE -> {
+                if (dist(e.x, e.y, player.x, player.y) < 158f * u + player.radius) {
+                    contactHit(e, e.atk * 1.42f * elitePower)
+                }
+                rings.add(RingFx(e.x + nx * 45f * u, e.y + ny * 45f * u, 118f * u, 0.3f, 0.3f, attack.color))
+            }
+            EnemySignatureAttack.GOBLIN_BOMB -> {
+                val center = atan2(ay, ax)
+                shot(center, 245f, 1.05f, 10, StatusType.BURN, 2.4f)
+            }
+            EnemySignatureAttack.RAT_DASH -> {
+                e.x = (e.x + nx * 128f * u).coerceIn(pad + e.radius, width - pad - e.radius)
+                e.y = (e.y + ny * 128f * u).coerceIn(pad + e.radius, height - pad - e.radius)
+                if (dist(e.x, e.y, player.x, player.y) < e.radius + player.radius + 34f * u) {
+                    contactHit(e, e.atk * 1.18f * elitePower)
+                }
+                leaveInkStroke(e.x - nx * 100f * u, e.y - ny * 100f * u, e.x, e.y, 7f * u, 4f, 0x6678716C)
+            }
+            EnemySignatureAttack.WISP_RING -> {
+                val offset = atan2(ay, ax) * 0.25f
+                for (k in 0..5) shot(offset + k * (PI.toFloat() / 3f), 235f, 0.62f, 12, StatusType.SLOW, 0.9f)
+                rings.add(RingFx(e.x, e.y, 125f * u, 0.5f, 0.5f, attack.color))
+            }
+            EnemySignatureAttack.NONE -> Unit
+        }
+        burst(e.x, e.y, 7, attack.color, 82f * u, 0.3f)
+        e.specialAttack = EnemySignatureAttack.NONE
+        e.specialWindup = 0f
+        e.specialCd = attack.cooldown * if (e.elite) 0.82f else 1f
+        e.attackCd = max(e.attackCd, 0.45f)
+    }
+
+    private fun tickEnemySupport(source: Actor) {
+        if (source.supportCd > 0f) return
+        when (source.kind.tacticalRole()) {
+            EnemyTacticalRole.HEALER -> {
+                val range = 280f * u
+                val target = enemies
+                    .asSequence()
+                    .filter { ally ->
+                        !ally.dead && ally !== source && ally.ai != EnemyAi.BOSS && ally.hp < ally.maxHp * 0.92f &&
+                            dist(source.x, source.y, ally.x, ally.y) <= range
+                    }
+                    .minByOrNull { ally -> ally.hp / ally.maxHp.coerceAtLeast(1f) }
+                if (target == null) {
+                    source.supportCd = 1.2f
+                    return
+                }
+                val amount = target.maxHp * if (source.elite) 0.13f else 0.09f
+                target.hp = min(target.maxHp, target.hp + amount)
+                target.hitFlash = 0.12f
+                bolts.add(BoltFx(source.x, source.y, target.x, target.y, 0.34f, 0.34f, 0xFF86EFAC))
+                rings.add(RingFx(target.x, target.y, target.radius * 1.6f, 0.42f, 0.42f, 0xFF4ADE80))
+                float(target.x, target.y - target.radius - 16f, "回春 +${amount.toInt()}", 74, 222, 128, 1.0f)
+                float(source.x, source.y - source.radius - 14f, "续火", 134, 239, 172, 0.9f)
+                source.supportCd = if (source.elite) 4.5f else 5.5f
+            }
+            EnemyTacticalRole.DRUMMER -> {
+                val allies = enemies.filter { ally ->
+                    !ally.dead && ally !== source && dist(source.x, source.y, ally.x, ally.y) <= 230f * u
+                }
+                if (allies.isEmpty()) {
+                    source.supportCd = 1.4f
+                    return
+                }
+                allies.forEach { ally -> ally.applyStatus(StatusType.RAGE, 3.2f, 0.22f) }
+                rings.add(RingFx(source.x, source.y, 230f * u, 0.48f, 0.48f, 0xFFFB923C))
+                burst(source.x, source.y, 9, 0xFFFB923C, 100f * u, 0.32f)
+                float(source.x, source.y - source.radius - 16f, "催阵鼓!", 251, 146, 60, 1.05f)
+                source.supportCd = if (source.elite) 5.2f else 6.4f
+            }
+            else -> Unit
+        }
+    }
+
+    private fun castSignatureBossMove(boss: Actor, move: BossMove) {
+        val phase = boss.bossPhase
+        val warmup = (1.05f - phase * 0.1f).coerceAtLeast(0.78f)
+        val predictedX = (player.x + player.vx * 0.35f).coerceIn(pad + player.radius, width - pad - player.radius)
+        val predictedY = (player.y + player.vy * 0.35f).coerceIn(pad + player.radius, height - pad - player.radius)
+        val accent = bossEncounter?.accent ?: boss.kind.burstColor()
+        val damage = boss.atk * (0.88f + phase * 0.08f)
+        var first = true
+
+        fun add(
+            shape: BossHazardShape,
+            x0: Float,
+            y0: Float,
+            x1: Float = x0,
+            y1: Float = y0,
+            outer: Float = 0f,
+            inner: Float = 0f,
+            laneWidth: Float = 0f,
+            delay: Float = warmup,
+            damageMul: Float = 1f,
+            slow: Boolean = false
+        ) {
+            bossHazards.add(
+                BossHazard(
+                    shape = shape,
+                    x0 = x0,
+                    y0 = y0,
+                    x1 = x1,
+                    y1 = y1,
+                    outerRadius = outer,
+                    innerRadius = inner,
+                    width = laneWidth,
+                    life = delay,
+                    damage = damage * damageMul,
+                    color = accent,
+                    label = if (first) move.title else "",
+                    slowOnHit = slow
+                )
+            )
+            first = false
+        }
+
+        fun centeredLine(cx: Float, cy: Float, angle: Float, laneWidth: Float, delay: Float = warmup) {
+            val len = max(width, height) * 1.45f
+            val dx = cos(angle) * len
+            val dy = sin(angle) * len
+            add(BossHazardShape.LINE, cx - dx, cy - dy, cx + dx, cy + dy, laneWidth = laneWidth, delay = delay)
+        }
+
+        when (move) {
+            BossMove.SYRUP_METEORS -> {
+                for (i in -1..1) {
+                    add(
+                        BossHazardShape.CIRCLE,
+                        (predictedX + i * 78f * u).coerceIn(pad, width - pad),
+                        predictedY,
+                        outer = (58f + phase * 6f) * u,
+                        delay = warmup + (i + 1) * 0.12f,
+                        slow = true
+                    )
+                }
+            }
+            BossMove.CORE_RING -> add(
+                BossHazardShape.RING, boss.x, boss.y,
+                outer = (175f + phase * 16f) * u,
+                inner = (78f - phase * 5f).coerceAtLeast(55f) * u,
+                damageMul = 1.15f
+            )
+            BossMove.MINECART_RIFT -> {
+                val angle = atan2(predictedY - boss.y, predictedX - boss.x)
+                centeredLine(boss.x, boss.y, angle, (48f + phase * 6f) * u)
+            }
+            BossMove.CRYSTAL_CROSS -> {
+                centeredLine(predictedX, predictedY, 0f, (38f + phase * 5f) * u)
+                centeredLine(predictedX, predictedY, PI.toFloat() * 0.5f, (38f + phase * 5f) * u, warmup + 0.1f)
+            }
+            BossMove.ROYAL_SEAL -> {
+                add(BossHazardShape.CIRCLE, predictedX, predictedY, outer = (82f + phase * 8f) * u, damageMul = 1.12f)
+                add(
+                    BossHazardShape.CIRCLE,
+                    (width - predictedX).coerceIn(pad, width - pad),
+                    (height - predictedY).coerceIn(pad, height - pad),
+                    outer = 64f * u,
+                    delay = warmup + 0.18f
+                )
+            }
+            BossMove.EMPTY_ECHO -> {
+                add(BossHazardShape.RING, boss.x, boss.y, outer = 142f * u, inner = 68f * u)
+                add(
+                    BossHazardShape.RING, boss.x, boss.y,
+                    outer = (255f + phase * 12f) * u,
+                    inner = 178f * u,
+                    delay = warmup + 0.22f,
+                    damageMul = 1.05f
+                )
+            }
+            BossMove.TIDAL_LANES -> {
+                centeredLine(width * 0.5f, predictedY, 0f, 58f * u)
+                val secondY = if (predictedY < height * 0.5f) predictedY + 145f * u else predictedY - 145f * u
+                centeredLine(width * 0.5f, secondY.coerceIn(pad, height - pad), 0f, 58f * u, warmup + 0.2f)
+            }
+            BossMove.SEA_VORTEX -> add(
+                BossHazardShape.RING, width * 0.5f, height * 0.52f,
+                outer = (235f + phase * 12f) * u,
+                inner = 92f * u,
+                damageMul = 1.08f,
+                slow = true
+            )
+            BossMove.FIVE_STROKES -> {
+                val start = atan2(predictedY - boss.y, predictedX - boss.x)
+                repeat(5) { i ->
+                    centeredLine(boss.x, boss.y, start + i * (PI.toFloat() / 5f), (30f + phase * 4f) * u)
+                }
+            }
+            BossMove.FINAL_SIGNATURE -> {
+                val points = listOf(
+                    predictedX to predictedY,
+                    (width - predictedX) to predictedY,
+                    predictedX to (height - predictedY),
+                    (width - predictedX) to (height - predictedY)
+                )
+                points.forEachIndexed { index, (x, y) ->
+                    add(
+                        BossHazardShape.CIRCLE,
+                        x.coerceIn(pad, width - pad),
+                        y.coerceIn(pad, height - pad),
+                        outer = (64f + phase * 5f) * u,
+                        delay = warmup + index * 0.09f,
+                        damageMul = 1.12f
+                    )
+                }
+            }
+        }
+
+        boss.hitStun = max(boss.hitStun, warmup * 0.55f)
+        bossPhaseLine = "${bossEncounter?.title ?: "首领"} · ${move.title} · 走位!"
+        float(boss.x, boss.y - boss.radius - 20f, "蓄势·${move.title}", 248, 113, 113, 1.15f)
+        rings.add(RingFx(boss.x, boss.y, boss.radius * 2.4f, 0.5f, 0.5f, accent))
+        hapticEvent = max(hapticEvent, 2)
+    }
+
+    private fun tickBossHazards(d: Float) {
+        var index = 0
+        while (index < bossHazards.size) {
+            val hazard = bossHazards[index]
+            hazard.life -= d
+            if (hazard.life > 0f) {
+                index++
+                continue
+            }
+
+            val hit = hazard.contains(player.x, player.y, player.radius)
+            if (hit) {
+                damagePlayer(hazard.damage)
+                if (hazard.slowOnHit) player.applyStatus(StatusType.SLOW, 1.5f, 0.45f)
+            } else if (hazard.label.isNotEmpty()) {
+                float(player.x, player.y - player.radius - 10f, "闪避!", 74, 222, 128, 1.05f)
+            }
+
+            when (hazard.shape) {
+                BossHazardShape.CIRCLE -> {
+                    rings.add(RingFx(hazard.x0, hazard.y0, hazard.outerRadius, 0.32f, 0.32f, hazard.color))
+                    leaveInkWash(hazard.x0, hazard.y0, hazard.outerRadius * 0.65f, 11f, hazard.color and 0x66FFFFFF)
+                    burst(hazard.x0, hazard.y0, 10, hazard.color, 120f * u, 0.35f)
+                }
+                BossHazardShape.RING -> {
+                    rings.add(RingFx(hazard.x0, hazard.y0, hazard.outerRadius, 0.38f, 0.38f, hazard.color))
+                    rings.add(RingFx(hazard.x0, hazard.y0, hazard.innerRadius, 0.38f, 0.38f, hazard.color))
+                    leaveInkWash(hazard.x0, hazard.y0, hazard.outerRadius * 0.38f, 12f, hazard.color and 0x55FFFFFF)
+                }
+                BossHazardShape.LINE -> {
+                    leaveInkStroke(
+                        hazard.x0, hazard.y0, hazard.x1, hazard.y1,
+                        hazard.width * 0.72f, 15f, hazard.color
+                    )
+                    burst(hazard.x0, hazard.y0, 6, hazard.color, 95f * u, 0.28f)
+                    burst(hazard.x1, hazard.y1, 6, hazard.color, 95f * u, 0.28f)
+                }
+            }
+            shake = max(shake, if (hit) 0.55f else 0.32f)
+            impactFlash = max(impactFlash, if (hit) 0.32f else 0.16f)
+            bossHazards.removeAt(index)
+        }
+    }
+
     private fun bossPhaseAnnounce(kind: EnemyKind, phase: Int): String = when (kind) {
-        EnemyKind.BOSS_SLIME -> if (phase == 1) "糖浆沸腾" else "果核裸露"
-        EnemyKind.BOSS_ORE -> if (phase == 1) "矿脉震颤" else "空罐回响"
+        EnemyKind.BOSS_SLIME -> bossEncounter?.let { if (phase == 1) it.phaseOne else it.phaseTwo }
+            ?: if (phase == 1) "糖浆沸腾" else "果核裸露"
+        EnemyKind.BOSS_ORE -> bossEncounter?.let { if (phase == 1) it.phaseOne else it.phaseTwo }
+            ?: if (phase == 1) "矿脉震颤" else "空罐回响"
         else -> if (phase == 1) "墨意翻涌" else "绝笔将至"
     }
 
@@ -1940,6 +2806,19 @@ class ArenaSim(
         }
         // armor / shell DR
         dmg *= (1f - e.armor.coerceIn(0f, 0.5f))
+        val guard = if (e.ai == EnemyAi.BOSS || e.kind.tacticalRole() == EnemyTacticalRole.GUARD) null else {
+            enemies.firstOrNull { ally ->
+                !ally.dead && ally.kind.tacticalRole() == EnemyTacticalRole.GUARD &&
+                    dist(ally.x, ally.y, e.x, e.y) <= 125f * u
+            }
+        }
+        if (guard != null) {
+            dmg *= guardDamageMultiplier(guard.elite)
+            if (heavy) {
+                bolts.add(BoltFx(guard.x, guard.y, e.x, e.y, 0.22f, 0.22f, 0xFFFDE68A))
+                float(e.x, e.y - e.radius - 30f, "护卫", 251, 191, 36, 0.8f)
+            }
+        }
         if (e.has(StatusType.VULN)) dmg *= 1f + e.powerOf(StatusType.VULN)
         var crit = false
         if (prng.nextFloat() < critChance + if (frenzyT > 0f) 0.06f else 0f) {
@@ -1995,7 +2874,8 @@ class ArenaSim(
         if (crit) slowMo = max(slowMo, 0.14f)
         hapticEvent = max(hapticEvent, if (crit) 2 else 1)
         comboCount++
-        comboTimer = 1.85f * mods.comboWindowMul
+        comboTimer = 1.85f * mods.comboWindowMul * (roomTrial?.comboWindowMul ?: 1f)
+        maxCombo = max(maxCombo, comboCount)
         if (comboCount == 5 || comboCount == 10 || comboCount == 15 || comboCount == 20) {
             val title = comboTitle(comboCount).ifBlank { "${comboCount}连!" }
             float(player.x, player.y - player.radius - 30f, title, 251, 146, 60, 1.45f)
@@ -2012,11 +2892,13 @@ class ArenaSim(
     }
 
     private fun applyGearProcOnHit(e: Actor, dmg: Float, heavy: Boolean, crit: Boolean) {
+        if (gearProcCooldown > 0f) return
         when (combatProc) {
             GearProc.BURN -> {
                 if (heavy || prng.nextFloat() < 0.55f) {
                     e.applyStatus(StatusType.BURN, 2.6f, player.atk * combatProcPower.coerceAtLeast(0.1f) * burnAmp)
                     if (heavy) float(e.x, e.y - e.radius - 34f, "燃!", 255, 107, 53, 0.95f)
+                    markGearProcTriggered()
                 }
             }
             GearProc.FREEZE -> {
@@ -2024,11 +2906,13 @@ class ArenaSim(
                 if (prng.nextFloat() < chance) {
                     e.applyStatus(StatusType.FREEZE, 1.4f + combatProcPower, 1f)
                     float(e.x, e.y - e.radius - 34f, "冻!", 125, 211, 252, 1.0f)
+                    markGearProcTriggered()
                 }
             }
             GearProc.POISON -> {
                 e.applyStatus(StatusType.POISON, 3.2f, player.atk * combatProcPower.coerceAtLeast(0.08f))
                 if (heavy) float(e.x, e.y - e.radius - 34f, "毒!", 163, 230, 53, 0.95f)
+                markGearProcTriggered()
             }
             GearProc.SPLASH -> {
                 if (heavy || crit) {
@@ -2042,20 +2926,24 @@ class ArenaSim(
                         }
                     }
                     rings.add(RingFx(e.x, e.y, r * 0.6f, 0.2f, 0.2f, 0xFFFBBF24))
+                    markGearProcTriggered()
                 }
             }
             GearProc.MP_SIPHON -> {
                 val gain = combatProcPower.coerceAtLeast(2f) + if (heavy) 2f else 0f
                 mp = min(maxMp, mp + gain)
                 if (heavy) float(player.x, player.y - 30f, "+${gain.toInt()}蓝", 125, 211, 252, 0.9f)
+                markGearProcTriggered()
             }
             GearProc.LIFESTEAL_PROC -> {
                 healPlayer(dmg * combatProcPower.coerceIn(0.02f, 0.12f))
+                markGearProcTriggered()
             }
             GearProc.RAGE_ON_HIT -> {
                 rageStacks = (rageStacks + 1).coerceAtMost(6)
                 rageT = 2.4f
                 if (rageStacks >= 3 && heavy) float(player.x, player.y - 42f, "战意x$rageStacks", 248, 113, 113, 0.95f)
+                markGearProcTriggered()
             }
             GearProc.CHAIN -> {
                 if (heavy && prng.nextFloat() < 0.45f + combatProcPower) {
@@ -2066,6 +2954,7 @@ class ArenaSim(
                         next.hitFlash = 0.2f
                         rings.add(RingFx(next.x, next.y, next.radius * 1.2f, 0.18f, 0.18f, 0xFFA78BFA))
                         if (next.hp <= 0f) killEnemy(next)
+                        markGearProcTriggered()
                     }
                 }
             }
@@ -2078,36 +2967,37 @@ class ArenaSim(
         e.dead = true
         e.hp = 0f
         e.squash = 1f
-        if (combatProc == GearProc.KILL_SHIELD) {
+        if (combatProc == GearProc.KILL_SHIELD && gearProcCooldown <= 0f) {
             player.applyStatus(StatusType.SHIELD, 2.2f, player.maxHp * combatProcPower.coerceIn(0.08f, 0.22f))
             float(player.x, player.y - 40f, "杀意护盾", 251, 191, 36, 1.0f)
+            markGearProcTriggered()
         }
         val g = ((goldPerKill + prng.nextInt(0, 6)) * goldMul).toInt().coerceAtLeast(1)
         drops.add(Drop(e.x, e.y, g, kind = 0))
         if (prng.nextFloat() < 0.16f + if (e.elite) 0.1f else 0f) {
             drops.add(Drop(e.x + 12f, e.y - 8f, gold = 0, kind = 1))
         }
-        // 装备 / 残卷 / 果实 / 戒鞋 — 提高可见掉落率
+        // 普通怪主要掉金；装备聚焦精英/Boss，掉落才有期待感。
         val lootChance = when {
-            e.ai == EnemyAi.BOSS -> 0.85f
-            e.elite -> 0.48f
-            else -> 0.22f
+            e.ai == EnemyAi.BOSS -> 0.70f
+            e.elite -> 0.30f
+            else -> 0.04f
         } + mods.dropBonus
         if (prng.nextFloat() < lootChance) {
             val roll = prng.nextFloat()
             when {
                 roll < 0.38f -> {
-                    WeaponCatalog.randomDrop(hero)?.let { w ->
+                    WeaponCatalog.randomDrop(hero, lootRarityCap)?.let { w ->
                         drops.add(Drop(e.x - 14f, e.y + 8f, 0, kind = 2, itemId = w.id, life = 18f))
                     }
                 }
                 roll < 0.52f -> {
-                    RingCatalog.randomDrop(hero)?.let { r ->
+                    RingCatalog.randomDrop(hero, lootRarityCap, lootTierCap)?.let { r ->
                         drops.add(Drop(e.x - 10f, e.y + 6f, 0, kind = 6, itemId = r.id, life = 18f))
                     }
                 }
                 roll < 0.66f -> {
-                    BootsCatalog.randomDrop(hero)?.let { b ->
+                    BootsCatalog.randomDrop(hero, lootRarityCap, lootTierCap)?.let { b ->
                         drops.add(Drop(e.x + 10f, e.y + 6f, 0, kind = 7, itemId = b.id, life = 18f))
                     }
                 }
@@ -2122,41 +3012,41 @@ class ArenaSim(
             }
         }
         // 精英/Boss 额外再掉一次装备
-        if ((e.elite || e.ai == EnemyAi.BOSS) && prng.nextFloat() < 0.55f) {
+        if ((e.elite || e.ai == EnemyAi.BOSS) && prng.nextFloat() < 0.25f) {
             val extra = prng.nextFloat()
             when {
-                extra < 0.45f -> WeaponCatalog.randomDrop(hero)?.let { w ->
+                extra < 0.45f -> WeaponCatalog.randomDrop(hero, lootRarityCap)?.let { w ->
                     drops.add(Drop(e.x + 18f, e.y - 6f, 0, kind = 2, itemId = w.id, life = 20f))
                 }
-                extra < 0.70f -> RingCatalog.randomDrop(hero)?.let { r ->
+                extra < 0.70f -> RingCatalog.randomDrop(hero, lootRarityCap, lootTierCap)?.let { r ->
                     drops.add(Drop(e.x + 16f, e.y - 4f, 0, kind = 6, itemId = r.id, life = 20f))
                 }
-                else -> BootsCatalog.randomDrop(hero)?.let { b ->
+                else -> BootsCatalog.randomDrop(hero, lootRarityCap, lootTierCap)?.let { b ->
                     drops.add(Drop(e.x + 14f, e.y - 8f, 0, kind = 7, itemId = b.id, life = 20f))
                 }
             }
         }
         // 防具掉落
         val armorChance = when {
-            e.ai == EnemyAi.BOSS -> 0.45f
-            e.elite -> 0.22f
-            else -> 0.08f
+            e.ai == EnemyAi.BOSS -> 0.35f
+            e.elite -> 0.14f
+            else -> 0.015f
         }
         if (prng.nextFloat() < armorChance) {
-            ArmorCatalog.randomDrop(hero)?.let { a ->
+            ArmorCatalog.randomDrop(hero, lootRarityCap, lootTierCap)?.let { a ->
                 drops.add(Drop(e.x + 8f, e.y + 14f, 0, kind = 5, itemId = a.id, life = 18f))
             }
         }
         val baseXp = when (e.ai) {
-            EnemyAi.BOSS -> 40
-            EnemyAi.CHARGER -> 14
-            EnemyAi.RANGED -> 12
-            EnemyAi.CHASE -> 8
+            EnemyAi.BOSS -> 12
+            EnemyAi.CHARGER -> 4
+            EnemyAi.RANGED -> 3
+            EnemyAi.CHASE -> 2
         } + when (e.kind) {
-            EnemyKind.BOSS_SLIME, EnemyKind.BOSS_ORE -> 20
-            EnemyKind.SPIKE_SLIME, EnemyKind.BEETLE, EnemyKind.SKELETON -> 4
+            EnemyKind.BOSS_SLIME, EnemyKind.BOSS_ORE -> 8
+            EnemyKind.SPIKE_SLIME, EnemyKind.BEETLE, EnemyKind.SKELETON -> 1
             else -> 0
-        }
+        } + if (e.elite) 3 else 0
         xpEarned += (baseXp * mods.xpMul).toInt().coerceAtLeast(1)
         roomKills++
         addUlt(12f + if (e.elite) 8f else 0f + if (e.ai == EnemyAi.BOSS) 20f else 0f)
@@ -2187,7 +3077,7 @@ class ArenaSim(
         zoomPunch = max(zoomPunch, 0.22f)
         impactFlash = max(impactFlash, 0.45f)
         slowMo = max(slowMo, 0.4f)
-        hapticEvent = 3
+        hapticEvent = max(hapticEvent, 3)
         float(e.x, e.y - 50f, "击破!", 250, 204, 21, 1.55f)
     }
 
@@ -2221,10 +3111,11 @@ class ArenaSim(
             }
         }
         player.hp -= dmg
+        playerDamageTaken += dmg
         player.hitFlash = 0.28f
         shake = max(shake, 0.32f)
         hitStop = max(hitStop, 0.04f)
-        hapticEvent = 4
+        hapticEvent = max(hapticEvent, 4)
         burst(player.x, player.y, 8, 0xFFEF4444, 90f * u, 0.3f)
         if (!ignoreInvuln) {
             // shorter i-frames — can't face-tank packs forever
@@ -2304,6 +3195,21 @@ class ArenaSim(
             p.vx *= 0.98f
             p.vy *= 0.98f
             if (p.life <= 0f) particles.removeAt(i) else i++
+        }
+    }
+
+    private fun tickCastFx(d: Float) {
+        var i = 0
+        while (i < skillCastsFx.size) {
+            val fx = skillCastsFx[i]
+            fx.life -= d
+            if (fx.life <= 0f) skillCastsFx.removeAt(i) else i++
+        }
+        i = 0
+        while (i < bolts.size) {
+            val fx = bolts[i]
+            fx.life -= d
+            if (fx.life <= 0f) bolts.removeAt(i) else i++
         }
     }
 

@@ -3,8 +3,8 @@ package com.jellystorage.play
 import kotlin.random.Random
 
 /**
- * 每局墨阶词缀：同种子固定，重开多变。
- * 高墨阶多抽 1~3 条，专为「再玩一把」的新鲜感。
+ * 每轮感染特征：同种子固定，重开多变。
+ * 高变异代多抽 1~3 条，形成免疫优势与病原体风险的组合。
  */
 enum class InkAffix(
     val id: String,
@@ -12,23 +12,23 @@ enum class InkAffix(
     val desc: String,
     val minRank: Int
 ) {
-    THICK_GOLD("gold", "厚金", "金币+28%", 0),
-    SHARP_HAIR("atk", "锋毫", "造成伤害+14%", 0),
-    IRON_BONE("hp", "铁骨", "最大生命+16%", 0),
-    QUICK_INK("spd", "疾墨", "移速+12%", 1),
-    BRUSH_FLOW("combo", "笔势", "连击更久·连伤更高", 1),
-    DENSE_FOE("dense", "稠敌", "敌更肉·掉落更丰", 1),
-    SPIRIT_WELL("spirit", "灵泉", "经验+22%·回蓝更快", 2),
-    WOLF_PACK("wolf", "恶狼", "精英更频更狠", 2),
-    SOFT_STEP("soft", "轻尘", "受伤-10%", 3),
-    LUCKY_SEAL("luck", "福印", "清场评价奖励+50%", 3),
-    STORM_INK("storm", "墨暴", "狂热更易触发", 4),
-    BOSS_HUNTER("hunter", "猎魁", "对精英/Boss+18%伤", 4),
+    THICK_GOLD("gold", "营养富集", "营养+28%", 0),
+    SHARP_HAIR("atk", "抗体活化", "造成伤害+14%", 0),
+    IRON_BONE("hp", "细胞硬化", "最大生命+16%", 0),
+    QUICK_INK("spd", "神经加速", "移速+12%", 1),
+    BRUSH_FLOW("combo", "连续吞噬", "连击更久·连伤更高", 1),
+    DENSE_FOE("dense", "增殖菌群", "敌更肉·掉落更丰", 1),
+    SPIRIT_WELL("spirit", "代谢活跃", "经验+22%·回蓝更快", 2),
+    WOLF_PACK("wolf", "群落协同", "精英更频更狠", 2),
+    SOFT_STEP("soft", "保护黏膜", "受伤-10%", 3),
+    LUCKY_SEAL("luck", "精准识别", "清场评价奖励+50%", 3),
+    STORM_INK("storm", "炎症风暴", "狂热更易触发", 4),
+    BOSS_HUNTER("hunter", "靶向抗体", "对精英/Boss+18%伤", 4),
     // 风险词缀：强收益 + 明确代价（高墨阶更常出现）
-    BLOOD_INK("blood", "血墨", "伤害+20% · 受伤+12%", 2),
-    GREED_BRUSH("greed", "贪毫", "金币+40% · 生命-10%", 3),
-    THIN_PAPER("thin", "薄纸", "移速+18% · 生命-12%", 2),
-    CURSED_SEAL("curse", "咒印", "经验+30% · 敌伤+15%", 4);
+    BLOOD_INK("blood", "高热反应", "伤害+20% · 受伤+12%", 2),
+    GREED_BRUSH("greed", "营养争夺", "营养+40% · 生命-10%", 3),
+    THIN_PAPER("thin", "膜层变薄", "移速+18% · 生命-12%", 2),
+    CURSED_SEAL("curse", "毒性代谢", "经验+30% · 敌伤+15%", 4);
 
     companion object {
         fun byId(id: String): InkAffix? = entries.find { it.id == id }
@@ -62,7 +62,7 @@ data class CombatMods(
 
 /** 本局抽取词缀（确定性） */
 fun rollInkAffixes(seed: Long, inkRank: Int): List<InkAffix> {
-    val rank = inkRank.coerceIn(0, 7)
+    val rank = inkRank.coerceIn(0, MAX_MUTATION_GENERATION)
     if (rank <= 0) {
         // 墨0：仍给 1 条轻量正面，新手也能感到「局有不同」
         val rng = Random(seed xor 0xA11CE)
@@ -168,7 +168,7 @@ fun combatModsFrom(affixes: List<InkAffix>): CombatMods {
 }
 
 fun affixLine(affixes: List<InkAffix>): String =
-    if (affixes.isEmpty()) "本局无词缀" else affixes.joinToString(" · ") { "「${it.title}」${it.desc}" }
+    if (affixes.isEmpty()) "本轮无感染特征" else affixes.joinToString(" · ") { "「${it.title}」${it.desc}" }
 
 fun affixShort(affixes: List<InkAffix>): String =
     if (affixes.isEmpty()) "" else affixes.joinToString(" ") { it.title }
@@ -185,7 +185,7 @@ fun comboTitle(n: Int): String = when {
     else -> ""
 }
 
-/** 今日画题种子：全天相同，方便互相攀比 */
+/** 今日毒株种子：全天相同，方便互相攀比。 */
 fun dailyInkSeed(): Long {
     val cal = java.util.Calendar.getInstance()
     val y = cal.get(java.util.Calendar.YEAR)
@@ -197,5 +197,5 @@ fun dailyInkSeed(): Long {
 fun dailyInkTitle(): String {
     val seed = dailyInkSeed()
     val aff = rollInkAffixes(seed, 2)
-    return "今日画题 · ${affixShort(aff)}"
+    return "今日毒株 · ${affixShort(aff)}"
 }

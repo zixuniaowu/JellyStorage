@@ -74,6 +74,33 @@ enum class GearProc(val title: String, val tip: String) {
     CHAIN("连锁", "技能更易连锁感")
 }
 
+/** Active hit procs use short internal cooldowns so their HUD state is honest and readable. */
+fun GearProc.cooldownSeconds(): Float = when (this) {
+    GearProc.BURN -> 0.45f
+    GearProc.FREEZE -> 1.4f
+    GearProc.POISON -> 0.65f
+    GearProc.SPLASH -> 0.9f
+    GearProc.MP_SIPHON -> 0.5f
+    GearProc.LIFESTEAL_PROC -> 0.35f
+    GearProc.KILL_SHIELD -> 1.6f
+    GearProc.RAGE_ON_HIT -> 0.3f
+    GearProc.CHAIN -> 0.85f
+    else -> 0f
+}
+
+fun GearProc.fxColor(): Long = when (this) {
+    GearProc.BURN, GearProc.EXECUTE, GearProc.RAGE_ON_HIT -> 0xFFEF4444
+    GearProc.FREEZE -> 0xFF7DD3FC
+    GearProc.POISON -> 0xFFA3E635
+    GearProc.SPLASH, GearProc.KILL_SHIELD -> 0xFFFBBF24
+    GearProc.MP_SIPHON, GearProc.CHAIN -> 0xFFA78BFA
+    GearProc.LIFESTEAL_PROC -> 0xFFF472B6
+    GearProc.HEAL_AMP -> 0xFF4ADE80
+    GearProc.WUXING_AMP -> 0xFF38BDF8
+    GearProc.THORNS -> 0xFFD97706
+    else -> 0xFFE7C98A
+}
+
 /**
  * 可装备武器：职业限定 + 属性面板 + 特效。
  * hero=null 为通用器，任何职业可装但属性略逊专武。
@@ -320,8 +347,8 @@ object WeaponCatalog {
         return pool.sortedBy { rank(it) }.distinctBy { it.id }.take(count)
     }
 
-    fun randomDrop(hero: HeroClass): GearWeapon? {
-        val pool = usableBy(hero).filter { it.cost > 0 }
+    fun randomDrop(hero: HeroClass, maxRarity: Int = 2): GearWeapon? {
+        val pool = usableBy(hero).filter { it.cost > 0 && it.rarity <= maxRarity.coerceIn(0, 2) }
         if (pool.isEmpty()) return null
         // 70% 专武，30% 通用
         val classPool = pool.filter { it.hero == hero }

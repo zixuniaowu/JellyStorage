@@ -113,8 +113,10 @@ object ArmorCatalog {
             price + classBoost * 10
         }.take(count)
     }
-    fun randomDrop(hero: HeroClass): GearArmor? {
-        val pool = usableBy(hero).filter { it.cost > 0 }
+    fun randomDrop(hero: HeroClass, maxRarity: Int = 2, maxTier: Int = 5): GearArmor? {
+        val pool = usableBy(hero).filter {
+            it.cost > 0 && it.rarity <= maxRarity.coerceIn(0, 2) && it.tier <= maxTier.coerceIn(1, 5)
+        }
         if (pool.isEmpty()) return null
         val roll = kotlin.random.Random.nextFloat()
         val filtered = when {
@@ -228,6 +230,9 @@ object SetCatalog {
     fun involvingWeapon(weaponId: String) = all.filter { weaponId in it.weaponIds }
     fun involvingArmor(armorId: String) = all.filter { armorId in it.armorIds }
 }
+
+fun newlyActivatedSet(beforeSetId: String?, after: GearSetDef?): GearSetDef? =
+    after?.takeIf { it.id != beforeSetId }
 
 /** 武器阶段：按 rarity+atk 粗分，图鉴用 */
 fun GearWeapon.tierLevel(): Int = when {

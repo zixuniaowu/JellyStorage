@@ -15,60 +15,153 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 
-/**
- * 古画 / 水墨卷轴风地图布景。
- * 分层：宣纸底 → 远山淡墨 → 中景 → 近景雾气 → 朱印点缀。
- */
+/** 器官路线扫描图。函数名保留，避免破坏旧调用与存档兼容。 */
 fun DrawScope.drawInkScrollBackdrop(stage: StageDef, w: Float, h: Float, pulse: Float, inkRank: Int = 0) {
-    // 宣纸/绢本底色（偏暖，像旧画）
-    val paper = listOf(
-        Color(0xFFF3E9D2),
-        Color(0xFFE8D9B8),
-        Color(0xFFD9C7A0)
-    )
-    drawRect(Brush.verticalGradient(paper), size = Size(w, h))
+    val ch = stage.chapterIndex.coerceAtLeast(0) % 5
+    val colors = organMapColors(ch)
+    drawRect(Brush.verticalGradient(listOf(colors.first, colors.second)), size = Size(w, h))
 
-    // 细纤维纹理
+    // 微弱细胞基质纹理，确定性生成，不影响路线辨识。
     val rng = Random(stage.id * 97L + inkRank * 13L)
-    for (i in 0..40) {
+    for (i in 0..34) {
         val x = rng.nextFloat() * w
         val y = rng.nextFloat() * h
-        drawLine(
-            Color(0x14A16207),
-            Offset(x, y),
-            Offset(x + rng.nextFloat() * 28f - 8f, y + rng.nextFloat() * 6f - 3f),
-            1.2f
-        )
+        val r = 2f + rng.nextFloat() * 7f
+        drawCircle(Color.White.copy(alpha = 0.035f), r, Offset(x, y))
+        if (i % 4 == 0) drawCircle(colors.third.copy(alpha = 0.08f), r * 0.35f, Offset(x, y))
     }
 
-    when (stage.chapterIndex % 5) {
-        0 -> drawInkSpringHills(w, h, pulse, rng)      // 青绿春山
-        1 -> drawInkAutumnGorge(w, h, pulse, rng)     // 赭墨秋壑
-        2 -> drawInkNightSnow(w, h, pulse, rng)       // 雪夜乌金
-        3 -> drawInkMistSea(w, h, pulse, rng)         // 墨海云涛
-        else -> drawInkPeak(w, h, pulse, rng)         // 空翠奇峰
+    drawOrganMapAnatomy(ch, w, h, pulse, colors.third)
+
+    // 医疗扫描边框与角标。
+    drawRoundRect(
+        Color.White.copy(alpha = 0.12f), Offset(w * 0.015f, h * 0.015f),
+        Size(w * 0.97f, h * 0.95f), CornerRadius(18f), style = Stroke(2f)
+    )
+    val corner = Color.White.copy(alpha = 0.32f)
+    listOf(
+        Offset(w * 0.035f, h * 0.14f), Offset(w * 0.965f, h * 0.14f),
+        Offset(w * 0.035f, h * 0.69f), Offset(w * 0.965f, h * 0.69f)
+    ).forEach { p ->
+        drawLine(corner, Offset(p.x - 10f, p.y), Offset(p.x + 10f, p.y), 2f)
+        drawLine(corner, Offset(p.x, p.y - 10f), Offset(p.x, p.y + 10f), 2f)
     }
 
-    // 卷轴上下暗边
+    // 上下暗角，底部选路栏仍能自然衔接。
+    drawRect(Brush.verticalGradient(listOf(Color(0x44000000), Color.Transparent)), size = Size(w, h * 0.11f))
     drawRect(
-        Brush.verticalGradient(listOf(Color(0x552E1A0A), Color.Transparent)),
-        size = Size(w, h * 0.10f)
+        Brush.verticalGradient(listOf(Color.Transparent, Color(0x66000000))),
+        topLeft = Offset(0f, h * 0.69f), size = Size(w, h * 0.31f)
     )
-    drawRect(
-        Brush.verticalGradient(listOf(Color.Transparent, Color(0x663D2914))),
-        topLeft = Offset(0f, h * 0.78f),
-        size = Size(w, h * 0.22f)
-    )
-    // 左右轴杆
-    drawRoundRect(Color(0xFF5C3A1E), Offset(-6f, h * 0.05f), Size(14f, h * 0.9f), CornerRadius(6f))
-    drawRoundRect(Color(0xFF5C3A1E), Offset(w - 8f, h * 0.05f), Size(14f, h * 0.9f), CornerRadius(6f))
-    drawCircle(Color(0xFF8B5A2B), 10f, Offset(4f, h * 0.08f))
-    drawCircle(Color(0xFF8B5A2B), 10f, Offset(w - 4f, h * 0.08f))
+}
 
-    // 朱文印
-    drawSealStamp(w * 0.90f, h * 0.22f, 22f + (inkRank % 3) * 2f, "果")
-    if (inkRank > 0) {
-        drawSealStamp(w * 0.86f, h * 0.32f, 16f, "墨$inkRank")
+private fun organMapColors(ch: Int): Triple<Color, Color, Color> = when (ch) {
+    1 -> Triple(Color(0xFFB9DDE5), Color(0xFF4E7E91), Color(0xFF2E7089))
+    2 -> Triple(Color(0xFFD796AC), Color(0xFF71324F), Color(0xFFF0A45D))
+    3 -> Triple(Color(0xFFB66D5D), Color(0xFF4E2527), Color(0xFFD8B64D))
+    4 -> Triple(Color(0xFFB83D55), Color(0xFF390B19), Color(0xFFFF8A92))
+    else -> Triple(Color(0xFFF0C4B4), Color(0xFF984E5A), Color(0xFFC43D55))
+}
+
+private fun DrawScope.drawOrganMapAnatomy(ch: Int, w: Float, h: Float, pulse: Float, accent: Color) {
+    when (ch) {
+        0 -> { // 表皮分层、创口与毛囊
+            for (layer in 0..3) {
+                val y = h * (0.22f + layer * 0.14f)
+                val path = Path().apply {
+                    moveTo(-20f, y)
+                    for (i in 0..12) {
+                        val x = w * i / 11f
+                        lineTo(x, y + sin(i * 0.8f + layer + pulse * 0.15f) * h * 0.025f)
+                    }
+                }
+                drawPath(path, Color.White.copy(alpha = 0.12f), style = Stroke(18f - layer * 2f, cap = StrokeCap.Round))
+                drawPath(path, accent.copy(alpha = 0.16f), style = Stroke(2.2f, cap = StrokeCap.Round))
+            }
+            val wound = Path().apply {
+                moveTo(w * 0.49f, h * 0.16f)
+                lineTo(w * 0.46f, h * 0.28f)
+                lineTo(w * 0.51f, h * 0.38f)
+                lineTo(w * 0.47f, h * 0.50f)
+            }
+            drawPath(wound, Color(0x55BE123C), style = Stroke(10f, cap = StrokeCap.Round))
+        }
+        1 -> { // 支气管树与肺泡簇
+            val trunk = Path().apply {
+                moveTo(w * 0.50f, h * 0.12f)
+                cubicTo(w * 0.50f, h * 0.25f, w * 0.44f, h * 0.29f, w * 0.40f, h * 0.38f)
+                moveTo(w * 0.50f, h * 0.24f)
+                cubicTo(w * 0.53f, h * 0.31f, w * 0.59f, h * 0.32f, w * 0.64f, h * 0.42f)
+            }
+            drawPath(trunk, accent.copy(alpha = 0.30f), style = Stroke(14f, cap = StrokeCap.Round))
+            val centers = listOf(0.25f to 0.35f, 0.32f to 0.52f, 0.70f to 0.36f, 0.63f to 0.54f, 0.48f to 0.48f)
+            centers.forEachIndexed { index, (cx, cy) ->
+                for (a in 0 until 6) {
+                    val ang = a * 1.0472f
+                    val p = Offset(w * cx + cos(ang) * 24f, h * cy + sin(ang) * 18f)
+                    val r = 16f + sin(pulse * 1.2f + index + a) * 1.5f
+                    drawCircle(Color.White.copy(alpha = 0.10f), r, p)
+                    drawCircle(accent.copy(alpha = 0.22f), r, p, style = Stroke(1.8f))
+                }
+            }
+        }
+        2 -> { // 肠道盘曲通路与绒毛
+            for (row in 0..3) {
+                val y = h * (0.22f + row * 0.12f)
+                val path = Path().apply {
+                    moveTo(w * 0.12f, y)
+                    cubicTo(w * 0.34f, y - h * 0.08f, w * 0.66f, y + h * 0.08f, w * 0.88f, y)
+                }
+                drawPath(path, Color.White.copy(alpha = 0.10f), style = Stroke(34f, cap = StrokeCap.Round))
+                drawPath(path, accent.copy(alpha = 0.24f), style = Stroke(4f, cap = StrokeCap.Round))
+            }
+            for (i in 0 until 28) {
+                val x = w * (0.10f + (i % 14) * 0.062f)
+                val y = h * (0.19f + (i / 14) * 0.48f)
+                drawLine(Color.White.copy(alpha = 0.14f), Offset(x, y), Offset(x + sin(i.toFloat()) * 5f, y + 18f), 3f, StrokeCap.Round)
+            }
+        }
+        3 -> { // 肝脏轮廓与肝小叶
+            val liver = Path().apply {
+                moveTo(w * 0.18f, h * 0.25f)
+                cubicTo(w * 0.34f, h * 0.13f, w * 0.76f, h * 0.16f, w * 0.84f, h * 0.31f)
+                cubicTo(w * 0.79f, h * 0.56f, w * 0.56f, h * 0.64f, w * 0.28f, h * 0.57f)
+                cubicTo(w * 0.17f, h * 0.50f, w * 0.12f, h * 0.36f, w * 0.18f, h * 0.25f)
+                close()
+            }
+            drawPath(liver, Color.White.copy(alpha = 0.08f))
+            drawPath(liver, accent.copy(alpha = 0.25f), style = Stroke(3f))
+            for (i in 0 until 18) {
+                val cx = w * (0.25f + (i % 6) * 0.10f)
+                val cy = h * (0.28f + (i / 6) * 0.12f)
+                val hex = Path()
+                for (k in 0..6) {
+                    val a = k * 1.0472f
+                    val p = Offset(cx + cos(a) * 18f, cy + sin(a) * 14f)
+                    if (k == 0) hex.moveTo(p.x, p.y) else hex.lineTo(p.x, p.y)
+                }
+                drawPath(hex, accent.copy(alpha = 0.18f), style = Stroke(1.5f))
+            }
+        }
+        else -> { // 心脏四腔与大血管
+            val beat = 1f + sin(pulse * 2.8f) * 0.025f
+            val heart = Path().apply {
+                moveTo(w * 0.50f, h * 0.62f)
+                cubicTo(w * (0.21f / beat), h * 0.45f, w * 0.27f, h * 0.18f, w * 0.43f, h * 0.25f)
+                cubicTo(w * 0.50f, h * 0.12f, w * 0.73f, h * 0.18f, w * 0.74f, h * 0.36f)
+                cubicTo(w * 0.73f, h * 0.49f, w * 0.60f, h * 0.57f, w * 0.50f, h * 0.62f)
+                close()
+            }
+            drawPath(heart, Color.White.copy(alpha = 0.09f))
+            drawPath(heart, accent.copy(alpha = 0.30f), style = Stroke(4f))
+            drawLine(accent.copy(alpha = 0.26f), Offset(w * 0.50f, h * 0.22f), Offset(w * 0.50f, h * 0.57f), 5f)
+            drawLine(accent.copy(alpha = 0.22f), Offset(w * 0.34f, h * 0.38f), Offset(w * 0.68f, h * 0.38f), 4f)
+            val vessel = Path().apply {
+                moveTo(w * 0.56f, h * 0.24f)
+                cubicTo(w * 0.58f, h * 0.08f, w * 0.82f, h * 0.10f, w * 0.91f, h * 0.20f)
+            }
+            drawPath(vessel, accent.copy(alpha = 0.32f), style = Stroke(18f, cap = StrokeCap.Round))
+        }
     }
 }
 
@@ -238,17 +331,27 @@ fun DrawScope.drawInkNodeIcon(
     type: NodeType,
     el: WuXing?,
     lit: Boolean,
-    pulse: Float
+    pulse: Float,
+    chapterIndex: Int = 0
 ) {
-    val ink = Color(0xFF2C2416)
-    val cinnabar = Color(0xFFB91C1C)
-    val jade = Color(0xFF3F6212)
+    val ch = chapterIndex.coerceAtLeast(0) % 5
+    val accent = organMapColors(ch).third
+    val ink = Color(0xFF281A22)
+    val cinnabar = accent
+    val jade = if (ch == 1) Color(0xFF0E7490) else Color(0xFF3F7653)
     if (lit) {
         drawCircle(cinnabar.copy(alpha = 0.18f + 0.08f * pulse), r + 12f, c)
         drawCircle(cinnabar.copy(alpha = 0.55f), r + 5f, c, style = Stroke(2.2f))
     }
-    // 宣纸圆底
-    drawCircle(Color(0xFFF5EBD4), r, c)
+    // 细胞膜圆底
+    val membrane = when (ch) {
+        1 -> Color(0xFFE8F7FA)
+        2 -> Color(0xFFFFE1E8)
+        3 -> Color(0xFFF4D5C7)
+        4 -> Color(0xFFFFD8DE)
+        else -> Color(0xFFFFE8DF)
+    }
+    drawCircle(membrane, r, c)
     drawCircle(ink.copy(alpha = 0.75f), r, c, style = Stroke(if (lit) 2.8f else 1.8f))
     if (el != null && (type == NodeType.MOB || type == NodeType.ELITE || type == NodeType.BOSS)) {
         drawCircle(el.color.copy(alpha = 0.45f), r * 0.78f, c, style = Stroke(2.2f))
@@ -301,7 +404,8 @@ fun DrawScope.drawInkPathStroke(
     a: Offset,
     b: Offset,
     active: Boolean,
-    visited: Boolean
+    visited: Boolean,
+    chapterIndex: Int = 0
 ) {
     val mid = Offset((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f)
     // 轻微弧线，像毛笔走线
@@ -315,21 +419,22 @@ fun DrawScope.drawInkPathStroke(
         moveTo(a.x, a.y)
         cubicTo(c1.x, c1.y, c2.x, c2.y, b.x, b.y)
     }
+    val organAccent = organMapColors(chapterIndex.coerceAtLeast(0) % 5).third
     val soft = when {
-        active -> Color(0x55B45309)
-        visited -> Color(0x332F4F3A)
+        active -> organAccent.copy(alpha = 0.34f)
+        visited -> Color(0x3347A58B)
         else -> Color(0x221C1917)
     }
     val main = when {
-        active -> Color(0xDDB91C1C)
-        visited -> Color(0x884A6741)
+        active -> organAccent.copy(alpha = 0.92f)
+        visited -> Color(0xAA47A58B)
         else -> Color(0x553F3F46)
     }
     val wMain = if (active) 4.2f else if (visited) 2.8f else 1.8f
     drawPath(path, soft, style = Stroke(width = wMain + 4f, cap = StrokeCap.Round))
     drawPath(path, main, style = Stroke(width = wMain, cap = StrokeCap.Round))
     if (active) {
-        drawCircle(Color(0x88B91C1C), 3.5f, mid)
+        drawCircle(organAccent.copy(alpha = 0.72f), 3.5f, mid)
     }
 }
 
@@ -433,7 +538,7 @@ fun DrawScope.drawInkButton(
  */
 fun stagesForRun(seed: Long, inkRank: Int): List<StageDef> {
     val base = stageDefs()
-    val mul = 1f + inkRank * 0.20f + ((seed % 5).toInt()) * 0.03f
+    val mul = mutationHpScale(inkRank) + ((seed % 5).toInt()) * 0.03f
     return base.mapIndexed { idx, st ->
         scaleStage(st, mul, seed xor (idx * 31L), inkRank)
     }
@@ -441,27 +546,27 @@ fun stagesForRun(seed: Long, inkRank: Int): List<StageDef> {
 
 private fun scaleStage(st: StageDef, mul: Float, seed: Long, inkRank: Int): StageDef {
     val rng = Random(seed)
-    val title = if (inkRank > 0) "${st.title} · 墨$inkRank" else st.title
+    val title = if (inkRank > 0) "${st.title} · 变异$inkRank" else st.title
     return st.copy(
         title = title,
-        tip = if (inkRank > 0) "墨阶$inkRank · 敌人更强 · 掉落更丰" else st.tip,
+        tip = if (inkRank > 0) "变异第${inkRank}代 · 敌人更强 · 掉落更丰" else st.tip,
         nodes = st.nodes.map { n ->
-            val gMul = 0.92f + rng.nextFloat() * 0.22f + inkRank * 0.04f
+            val gMul = 0.92f + rng.nextFloat() * 0.22f + inkRank.coerceAtMost(15) * 0.04f
             n.copy(
                 goldDrop = (n.goldDrop * gMul).toInt().coerceAtLeast(if (n.goldDrop > 0) 1 else 0),
-                trapDmg = n.trapDmg * (1f + inkRank * 0.12f),
+                trapDmg = n.trapDmg * mutationTrapScale(inkRank),
                 waves = n.waves.map { w ->
                     WaveDef(w.enemies.map { e ->
                         e.copy(
                             hp = e.hp * mul * (0.96f + rng.nextFloat() * 0.08f),
-                            atk = e.atk * (1f + inkRank * 0.16f) * (0.97f + rng.nextFloat() * 0.06f)
+                            atk = e.atk * mutationAtkScale(inkRank) * (0.97f + rng.nextFloat() * 0.06f)
                         )
                     })
                 },
                 // 小概率把非战斗房换成另一类，增加重开新鲜感
                 type = maybeSwapNode(n, rng, inkRank),
                 eventId = if (n.type == NodeType.EVENT && n.eventId.isNotBlank() && rng.nextFloat() < 0.35f) {
-                    listOf("merchant", "bard", "stele", "archive").random(rng)
+                    listOf("merchant", "bard", "stele", "archive", "inkwell", "spirit_forge").random(rng)
                 } else n.eventId
             )
         }

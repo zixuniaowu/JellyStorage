@@ -46,15 +46,43 @@ class ProgressStore(context: Context) {
         get() = sp.getBoolean(K_HAP, true)
         set(v) { sp.edit().putBoolean(K_HAP, v).apply() }
 
-    /** 已解锁最高墨阶（0 起，通关抬升，供反复挑战） */
-    var inkRankUnlocked: Int
-        get() = sp.getInt(K_INK_UNLOCK, 0).coerceIn(0, 7)
-        set(v) { sp.edit().putInt(K_INK_UNLOCK, v.coerceIn(0, 7)).apply() }
+    var language: GameLanguage
+        get() = GameLanguage.fromCode(sp.getString(K_LANGUAGE, null))
+        set(v) { sp.edit().putString(K_LANGUAGE, v.code).apply() }
 
-    /** 下次出征选用的墨阶 */
+    /** 已解锁最高病毒变异代次；沿用旧存档键，避免升级后丢失周目。 */
+    var inkRankUnlocked: Int
+        get() = sp.getInt(K_INK_UNLOCK, 0).coerceIn(0, MAX_MUTATION_GENERATION)
+        set(v) { sp.edit().putInt(K_INK_UNLOCK, v.coerceIn(0, MAX_MUTATION_GENERATION)).apply() }
+
+    /** 下次感染周期选用的病毒变异代次。 */
     var preferredInkRank: Int
         get() = sp.getInt(K_INK_PREF, 0).coerceIn(0, inkRankUnlocked)
         set(v) { sp.edit().putInt(K_INK_PREF, v.coerceIn(0, inkRankUnlocked)).apply() }
+
+    var preferredImmuneMemoryId: String
+        get() {
+            val unlocked = ImmuneMemory.unlocked(inkRankUnlocked)
+            val saved = ImmuneMemory.byId(sp.getString(K_IMMUNE_MEMORY, null))
+            return (saved?.takeIf { it in unlocked } ?: unlocked.first()).id
+        }
+        set(v) {
+            val selected = ImmuneMemory.byId(v)
+                ?.takeIf { it in ImmuneMemory.unlocked(inkRankUnlocked) }
+                ?: ImmuneMemory.CLOTTING_BARRIER
+            sp.edit().putString(K_IMMUNE_MEMORY, selected.id).apply()
+        }
+
+    fun preferredImmuneMemory(): ImmuneMemory =
+        ImmuneMemory.byId(preferredImmuneMemoryId) ?: ImmuneMemory.CLOTTING_BARRIER
+
+    fun cyclePreferredImmuneMemory(): ImmuneMemory {
+        val unlocked = ImmuneMemory.unlocked(inkRankUnlocked)
+        val current = unlocked.indexOfFirst { it.id == preferredImmuneMemoryId }.coerceAtLeast(0)
+        val next = unlocked[(current + 1) % unlocked.size]
+        preferredImmuneMemoryId = next.id
+        return next
+    }
 
     /** 本地账号：仅存本机，无服务器 */
     fun hasLocalAccount(): Boolean = !sp.getString(K_USER, null).isNullOrBlank()
@@ -203,7 +231,8 @@ class ProgressStore(context: Context) {
 
     fun activeRunSummary(): String {
         if (!hasActiveRun()) return ""
-        val hero = sp.getString(rk(K_RUN_HERO), "战士") ?: "战士"
+        val heroRaw = sp.getString(rk(K_RUN_HERO), HeroClass.WARRIOR.name) ?: HeroClass.WARRIOR.name
+        val hero = HeroClass.entries.firstOrNull { it.name == heroRaw }?.displayName ?: heroRaw
         val stage = sp.getInt(rk(K_RUN_STAGE), 0) + 1
         val lv = sp.getInt(rk(K_RUN_LV), 1)
         val node = sp.getString(rk(K_RUN_NODE_NAME), "路上") ?: "路上"
@@ -233,9 +262,9 @@ class ProgressStore(context: Context) {
         clearActiveRun(ed)
         ed.commit()
         touchCharacterProgress(stageIndex)
-        // 通关抬升墨阶上限，鼓励重开更高难度
+        // 完成感染周期后，病毒进入下一变异代，并解锁新的免疫记忆。
         if (won) {
-            val next = (inkRankUnlocked + 1).coerceAtMost(7)
+            val next = (inkRankUnlocked + 1).coerceAtMost(MAX_MUTATION_GENERATION)
             if (next > inkRankUnlocked) inkRankUnlocked = next
             preferredInkRank = inkRankUnlocked
         }
@@ -256,6 +285,7 @@ class ProgressStore(context: Context) {
             .putInt(rk(K_RUN_STAGE), meta.stageIndex)
             .putLong(rk(K_RUN_SEED), meta.runSeed)
             .putInt(rk(K_RUN_INK), meta.inkRank)
+            .putString(rk(K_RUN_MEMORY), meta.immuneMemoryId)
             .putInt(rk(K_RUN_NODE), meta.nodeId)
             .putString(rk(K_RUN_NODE_NAME), nodeName)
             .putInt(rk(K_RUN_GOLD), meta.gold)
@@ -269,6 +299,10 @@ class ProgressStore(context: Context) {
             .putFloat(rk(K_RUN_HP), meta.curHp)
             .putFloat(rk(K_RUN_MP), meta.curMp)
             .putString(rk(K_RUN_PASSIVES), meta.passives.joinToString(",") { it.name })
+            .putString(
+                rk(K_RUN_CORE_INKS),
+                encodeCoreInkRanks(meta.coreInkRanks)
+            )
             .putString(rk(K_RUN_VISITED), meta.visited.joinToString(","))
             .putInt(rk(K_RUN_KILLS), meta.kills)
             .putInt(rk(K_RUN_ROOMS), meta.roomsCleared)
@@ -356,7 +390,9 @@ class ProgressStore(context: Context) {
         meta.skinId = sp.getString(rk(K_RUN_SKIN), SkinCatalog.defaultFor(hero).id)
             ?: SkinCatalog.defaultFor(hero).id
         meta.runSeed = sp.getLong(rk(K_RUN_SEED), System.nanoTime())
-        meta.inkRank = sp.getInt(rk(K_RUN_INK), 0).coerceIn(0, 7)
+        meta.inkRank = sp.getInt(rk(K_RUN_INK), 0).coerceIn(0, MAX_MUTATION_GENERATION)
+        meta.immuneMemoryId = sp.getString(rk(K_RUN_MEMORY), preferredImmuneMemoryId)
+            ?: ImmuneMemory.CLOTTING_BARRIER.id
         meta.invalidateStageCache()
         meta.stageIndex = sp.getInt(rk(K_RUN_STAGE), 0).coerceIn(0, meta.stages().lastIndex)
         meta.nodeId = sp.getInt(rk(K_RUN_NODE), 0)
@@ -371,7 +407,8 @@ class ProgressStore(context: Context) {
         meta.potions = sp.getInt(rk(K_RUN_POT), 1)
         meta.level = sp.getInt(rk(K_RUN_LV), 1)
         meta.xp = sp.getInt(rk(K_RUN_XP), 0)
-        meta.xpToLevel = sp.getInt(rk(K_RUN_XP_NEED), 36)
+        // 经验曲线由版本规则决定，不沿用旧存档里过小的门槛（曾导致一战满技能）。
+        meta.xpToLevel = xpRequirementForLevel(meta.level)
         meta.curHp = sp.getFloat(rk(K_RUN_HP), -1f)
         meta.curMp = sp.getFloat(rk(K_RUN_MP), -1f)
         meta.passives.clear()
@@ -383,6 +420,9 @@ class ProgressStore(context: Context) {
                 } catch (_: Exception) { /* skip */ }
             }
         }
+        meta.coreInkRanks.clear()
+        val coreInks = sp.getString(rk(K_RUN_CORE_INKS), "") ?: ""
+        meta.coreInkRanks.putAll(decodeCoreInkRanks(coreInks, meta.hero))
         meta.visited = (sp.getString(rk(K_RUN_VISITED), "0") ?: "0")
             .split(",")
             .mapNotNull { it.toIntOrNull() }
@@ -397,8 +437,13 @@ class ProgressStore(context: Context) {
         meta.storyQueue = emptyList()
         meta.storyIndex = 0
         meta.pendingArenaAfterStory = false
+        meta.coreInkChoices = emptyList()
+        meta.pendingLevelAfterCore = false
         meta.arenaBanner = ""
         meta.arenaBannerT = 0f
+        meta.setAwakenedId = ""
+        meta.setAwakenedT = 0f
+        meta.setAwakenedHapticPending = false
         meta.ownedWeapons.clear()
         val wpn = sp.getString(rk(K_RUN_WEAPONS), "") ?: ""
         if (wpn.isNotBlank()) meta.ownedWeapons.addAll(wpn.split(",").filter { it.isNotBlank() })
@@ -472,6 +517,7 @@ class ProgressStore(context: Context) {
         private const val K_TUT = "tut"
         private const val K_SND = "snd"
         private const val K_HAP = "hap"
+        private const val K_LANGUAGE = "language"
 
         private const val K_RUN_ACTIVE = "run_active"
         private const val K_RUN_HERO = "run_hero"
@@ -490,6 +536,7 @@ class ProgressStore(context: Context) {
         private const val K_RUN_HP = "run_hp"
         private const val K_RUN_MP = "run_mp"
         private const val K_RUN_PASSIVES = "run_pass"
+        private const val K_RUN_CORE_INKS = "run_core_inks"
         private const val K_RUN_VISITED = "run_vis"
         private const val K_RUN_KILLS = "run_kills"
         private const val K_RUN_ROOMS = "run_rooms"
@@ -517,7 +564,9 @@ class ProgressStore(context: Context) {
         private const val K_ACTIVE_CHAR = "active_char"
         private const val K_INK_UNLOCK = "ink_unlock"
         private const val K_INK_PREF = "ink_pref"
+        private const val K_IMMUNE_MEMORY = "immune_memory"
         private const val K_RUN_SEED = "run_seed"
         private const val K_RUN_INK = "run_ink"
+        private const val K_RUN_MEMORY = "run_memory"
     }
 }

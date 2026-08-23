@@ -53,30 +53,43 @@ data class SkillDef(
 )
 
 /**
- * 每职业 5 技能：Lv1普攻 · Lv2 · Lv3 · Lv4 · Lv5必杀
+ * 每职业 5 技能：第一战解锁首个技能，之后隔级获得新招。
+ * 完整招式跨越约 7~9 个战斗房，避免首关结束就失去成长目标。
  */
 fun skillsFor(hero: HeroClass): List<SkillDef> = when (hero) {
     HeroClass.WARRIOR -> listOf(
         SkillDef(SkillSlot.BASIC, "斩击", "斩", 0.30f, 0f, "近战扇形·连斩加伤", 1),
         SkillDef(SkillSlot.S1, "冲锋", "冲", 4.2f, 16f, "突进重创·短无敌", 2),
-        SkillDef(SkillSlot.S2, "铁壁", "盾", 6.5f, 18f, "护盾+反伤", 3),
-        SkillDef(SkillSlot.S3, "旋风斩", "风", 5.5f, 22f, "自身周围旋斩多段", 4),
-        SkillDef(SkillSlot.ULT, "墨马·裂地", "马", 11f, 34f, "必杀：全屏墨马奔袭·重创", 5)
+        SkillDef(SkillSlot.S2, "铁壁", "盾", 6.5f, 18f, "护盾+反伤", 4),
+        SkillDef(SkillSlot.S3, "旋风斩", "风", 5.5f, 22f, "自身周围旋斩多段", 6),
+        SkillDef(SkillSlot.ULT, "墨马·裂地", "马", 11f, 34f, "必杀：全屏墨马奔袭·重创", 8)
     )
     HeroClass.MAGE -> listOf(
         SkillDef(SkillSlot.BASIC, "火球", "火", 0.42f, 0f, "火球溅射·点燃", 1),
         SkillDef(SkillSlot.S1, "冰环", "冰", 5.2f, 24f, "冻结·无法行动", 2),
-        SkillDef(SkillSlot.S2, "链雷", "雷", 5.8f, 26f, "连锁弹射多目标", 3),
-        SkillDef(SkillSlot.S3, "炎爆", "爆", 6.2f, 28f, "目标点范围大爆炸", 4),
-        SkillDef(SkillSlot.ULT, "墨马·流火", "马", 11f, 40f, "必杀：全屏墨马·附燃", 5)
+        SkillDef(SkillSlot.S2, "链雷", "雷", 5.8f, 26f, "连锁弹射多目标", 4),
+        SkillDef(SkillSlot.S3, "炎爆", "爆", 6.2f, 28f, "目标点范围大爆炸", 6),
+        SkillDef(SkillSlot.ULT, "墨马·流火", "马", 11f, 40f, "必杀：全屏墨马·附燃", 8)
     )
     HeroClass.TAOIST -> listOf(
         SkillDef(SkillSlot.BASIC, "三符", "符", 0.38f, 0f, "三道灵符·命中回血", 1),
         SkillDef(SkillSlot.S1, "毒雾", "毒", 5.0f, 20f, "毒圈持续掉血+易伤", 2),
-        SkillDef(SkillSlot.S2, "回春", "春", 6.0f, 22f, "大额回血·解控", 3),
-        SkillDef(SkillSlot.S3, "镇符", "镇", 5.5f, 24f, "禁锢+范围减速", 4),
-        SkillDef(SkillSlot.ULT, "墨马·天骑", "马", 11f, 36f, "必杀：全屏墨马·回血", 5)
+        SkillDef(SkillSlot.S2, "回春", "春", 6.0f, 22f, "大额回血·解控", 4),
+        SkillDef(SkillSlot.S3, "镇符", "镇", 5.5f, 24f, "禁锢+范围减速", 6),
+        SkillDef(SkillSlot.ULT, "墨马·天骑", "马", 11f, 36f, "必杀：全屏墨马·回血", 8)
     )
+}
+
+/** 当前等级升到下一级所需经验；前期快、后期逐步拉长。 */
+fun xpRequirementForLevel(level: Int): Int = when (level.coerceAtLeast(1)) {
+    1 -> 45
+    2 -> 85
+    3 -> 110
+    4 -> 140
+    5 -> 175
+    6 -> 215
+    7 -> 260
+    else -> 260 + (level - 7) * 55
 }
 
 /** Levels that grant new skills — for level-up toast. */
@@ -175,17 +188,17 @@ fun EnemyKind.baseRadius(): Float = when (this) {
 }
 
 fun EnemyKind.displayName(): String = when (this) {
-    EnemyKind.SLIME -> "绿史莱姆"
-    EnemyKind.PINK_SLIME -> "粉史莱姆"
-    EnemyKind.SPIKE_SLIME -> "刺壳史莱姆"
-    EnemyKind.BEETLE -> "甲虫"
-    EnemyKind.BAT -> "夜蝠"
-    EnemyKind.SKELETON -> "骷髅"
-    EnemyKind.GOBLIN -> "小哥布林"
-    EnemyKind.RAT -> "矿鼠"
-    EnemyKind.WISP -> "幽火"
-    EnemyKind.BOSS_SLIME -> "草原霸主"
-    EnemyKind.BOSS_ORE -> "矿脉魔"
+    EnemyKind.SLIME -> "球状菌"
+    EnemyKind.PINK_SLIME -> "芽生菌"
+    EnemyKind.SPIKE_SLIME -> "棘壳病毒"
+    EnemyKind.BEETLE -> "护膜杆菌"
+    EnemyKind.BAT -> "翼膜病毒"
+    EnemyKind.SKELETON -> "坏死细胞"
+    EnemyKind.GOBLIN -> "群落信使"
+    EnemyKind.RAT -> "游走病菌"
+    EnemyKind.WISP -> "孢子母体"
+    EnemyKind.BOSS_SLIME -> "感染核心"
+    EnemyKind.BOSS_ORE -> "变异核心"
 }
 
 fun EnemyKind.burstColor(): Long = when (this) {
@@ -346,13 +359,13 @@ private fun longMine(hp: Float, atk: Float): List<WaveDef> = listOf(
 fun stageDefs(): List<StageDef> = listOf(
     // ── Chapter 1: multi-fork prairie (risk / reward routes) ─────
     StageDef(
-        1, "果冻草原", "五行关卡 · 买对武器再开打",
-        bgTop = 0xFF0F172A, bgBot = 0xFF14532D, chapterIndex = 0,
+        1, "皮肤创口", "凝血边境 · 封住最初的入侵口",
+        bgTop = 0xFFF3C4B2, bgBot = 0xFF8F3F4B, chapterIndex = 0,
         nodes = listOf(
-            MapNode(0, NodeType.START, 0.03f, 0.50f, "营地", listOf(1), blurb = "盟会临时落脚点"),
+            MapNode(0, NodeType.START, 0.03f, 0.50f, "凝血前哨", listOf(1), blurb = "血小板正在搭建防线"),
             // 木关：荐金
             MapNode(
-                1, NodeType.MOB, 0.12f, 0.50f, "史莱姆窝", listOf(2, 3, 4),
+                1, NodeType.MOB, 0.12f, 0.50f, "菌落创面", listOf(2, 3, 4),
                 waves = listOf(
                     WaveDef(listOf(
                         WaveEnemy(EnemyKind.SLIME, EnemyAi.CHASE, 48f, 7f, 110f),
@@ -368,46 +381,46 @@ fun stageDefs(): List<StageDef> = listOf(
                     slime(4, 56f, 9f),
                     mixed(60f, 10f)
                 ),
-                goldDrop = 16, blurb = "木关·够买入门刀", element = WuXing.WOOD
+                goldDrop = 16, blurb = "首批病原体·荐金", element = WuXing.WOOD
             ),
             // 第一岔：金币袋可开行商；中路直接商店；下路战斗
-            MapNode(2, NodeType.GOLD, 0.22f, 0.18f, "金币袋", listOf(5), goldDrop = 28, blurb = "拿金·可买装"),
-            MapNode(3, NodeType.SHOP, 0.22f, 0.50f, "早市铁匠", listOf(5), blurb = "第一站就能买装"),
+            MapNode(2, NodeType.GOLD, 0.22f, 0.18f, "营养囊", listOf(5), goldDrop = 28, blurb = "吸收营养·强化装备"),
+            MapNode(3, NodeType.SHOP, 0.22f, 0.50f, "抗体工坊", listOf(5), blurb = "调整首轮免疫装备"),
             MapNode(
-                4, NodeType.MOB, 0.22f, 0.82f, "黏液冲沟", listOf(5),
-                waves = longMob(62f, 11f), goldDrop = 20, blurb = "木关·多经验", element = WuXing.WOOD
+                4, NodeType.MOB, 0.22f, 0.82f, "组织液沟", listOf(5),
+                waves = longMob(62f, 11f), goldDrop = 20, blurb = "菌群密集·经验较多", element = WuXing.WOOD
             ),
             // 水关：荐土
             MapNode(
-                5, NodeType.MOB, 0.32f, 0.50f, "混战原", listOf(6, 7, 8),
-                waves = longMob(70f, 12f), goldDrop = 18, blurb = "水关混编", element = WuXing.WATER
+                5, NodeType.MOB, 0.32f, 0.50f, "炎症交界", listOf(6, 7, 8),
+                waves = longMob(70f, 12f), goldDrop = 18, blurb = "细菌与病毒混编", element = WuXing.WATER
             ),
-            MapNode(6, NodeType.REST, 0.42f, 0.18f, "篝火", listOf(9), blurb = "稳妥休整"),
-            MapNode(7, NodeType.SHOP, 0.42f, 0.50f, "流动铁匠", listOf(9), blurb = "按下一关买克制"),
-            MapNode(8, NodeType.EVENT, 0.42f, 0.82f, "神秘商人", listOf(9), eventId = "merchant", blurb = "交易有代价"),
+            MapNode(6, NodeType.REST, 0.42f, 0.18f, "血小板站", listOf(9), blurb = "稳固凝血屏障"),
+            MapNode(7, NodeType.SHOP, 0.42f, 0.50f, "淋巴补给站", listOf(9), blurb = "按下一区域调整克制"),
+            MapNode(8, NodeType.EVENT, 0.42f, 0.82f, "记忆细胞", listOf(9), eventId = "merchant", blurb = "交换免疫资源"),
             // 金关：荐火
             MapNode(
-                9, NodeType.MOB, 0.52f, 0.50f, "泥沼小径", listOf(10, 11, 12),
-                waves = longMob(80f, 13f), goldDrop = 20, blurb = "金关刺壳多", element = WuXing.METAL
+                9, NodeType.MOB, 0.52f, 0.50f, "表皮裂隙", listOf(10, 11, 12),
+                waves = longMob(80f, 13f), goldDrop = 20, blurb = "棘壳病毒增多", element = WuXing.METAL
             ),
-            MapNode(10, NodeType.HEAL, 0.60f, 0.18f, "草泉", listOf(13), goldDrop = 8, blurb = "回血"),
+            MapNode(10, NodeType.HEAL, 0.60f, 0.18f, "修复因子", listOf(13), goldDrop = 8, blurb = "恢复细胞活性"),
             MapNode(
-                11, NodeType.ELITE, 0.60f, 0.50f, "甲虫关卡", listOf(13),
-                waves = longMob(88f, 14f, hard = true), goldDrop = 28, blurb = "土关精英", element = WuXing.EARTH
+                11, NodeType.ELITE, 0.60f, 0.50f, "护膜菌阵", listOf(13),
+                waves = longMob(88f, 14f, hard = true), goldDrop = 28, blurb = "耐药精英", element = WuXing.EARTH
             ),
-            MapNode(12, NodeType.EVENT, 0.60f, 0.82f, "流浪歌手", listOf(13), eventId = "bard", blurb = "赌一把"),
-            MapNode(13, NodeType.SHOP, 0.70f, 0.50f, "铁匠铺", listOf(14, 15), blurb = "Boss前换装"),
+            MapNode(12, NodeType.EVENT, 0.60f, 0.82f, "神经脉冲", listOf(13), eventId = "bard", blurb = "尝试激活应答"),
+            MapNode(13, NodeType.SHOP, 0.70f, 0.50f, "抗体装配室", listOf(14, 15), blurb = "感染核心前换装"),
             // 终点纵向拉开，标签走上下避让
             MapNode(
-                14, NodeType.MOB, 0.80f, 0.20f, "甲虫林缘", listOf(16),
-                waves = longMob(92f, 14f, hard = true), goldDrop = 22, blurb = "土关", element = WuXing.EARTH
+                14, NodeType.MOB, 0.80f, 0.20f, "角质层边缘", listOf(16),
+                waves = longMob(92f, 14f, hard = true), goldDrop = 22, blurb = "护膜菌聚集", element = WuXing.EARTH
             ),
             MapNode(
-                15, NodeType.MOB, 0.80f, 0.80f, "哥布林哨", listOf(16),
-                waves = longMob(90f, 14f, hard = true), goldDrop = 22, blurb = "木关", element = WuXing.WOOD
+                15, NodeType.MOB, 0.80f, 0.80f, "毛囊哨口", listOf(16),
+                waves = longMob(90f, 14f, hard = true), goldDrop = 22, blurb = "信使菌聚集", element = WuXing.WOOD
             ),
             MapNode(
-                16, NodeType.ELITE, 0.88f, 0.50f, "精英甲虫", listOf(17),
+                16, NodeType.ELITE, 0.88f, 0.50f, "耐药杆菌", listOf(17),
                 waves = listOf(
                     WaveDef(listOf(
                         WaveEnemy(EnemyKind.BEETLE, EnemyAi.CHARGER, 220f, 18f, 142f, elite = true),
@@ -419,10 +432,10 @@ fun stageDefs(): List<StageDef> = listOf(
                     mixed(120f, 16f),
                     longMob(110f, 16f, hard = true).last()
                 ),
-                goldDrop = 30, blurb = "土关前哨", element = WuXing.EARTH
+                goldDrop = 30, blurb = "感染核心前哨", element = WuXing.EARTH
             ),
             MapNode(
-                17, NodeType.BOSS, 0.93f, 0.50f, "草原霸主", listOf(18),
+                17, NodeType.BOSS, 0.93f, 0.50f, "创口感染核心", listOf(18),
                 waves = listOf(
                     WaveDef(listOf(WaveEnemy(EnemyKind.BOSS_SLIME, EnemyAi.BOSS, 620f, 20f, 98f))),
                     WaveDef(listOf(
@@ -444,33 +457,33 @@ fun stageDefs(): List<StageDef> = listOf(
                         WaveEnemy(EnemyKind.GOBLIN, EnemyAi.CHASE, 120f, 16f, 130f)
                     ))
                 ),
-                goldDrop = 42, blurb = "木关Boss·荐金", element = WuXing.WOOD
+                goldDrop = 42, blurb = "皮肤Boss·封闭创口", element = WuXing.WOOD
             ),
-            MapNode(18, NodeType.EXIT, 0.99f, 0.22f, "东行隘口", emptyList(), blurb = "通往矿道的风")
+            MapNode(18, NodeType.EXIT, 0.99f, 0.22f, "毛细血管", emptyList(), blurb = "随血流前往肺部")
         )
     ),
     // ── Chapter 2: branched mine ─────────────────────────────────
     StageDef(
-        2, "哭泣矿道", "五行矿脉 · 看关型买克制装",
-        bgTop = 0xFF1E1B4B, bgBot = 0xFF422006, chapterIndex = 1,
+        2, "肺泡云海", "呼吸回廊 · 在缺氧前清除飞沫病毒",
+        bgTop = 0xFFCCECF4, bgBot = 0xFF47758B, chapterIndex = 1,
         nodes = listOf(
-            MapNode(0, NodeType.START, 0.03f, 0.50f, "矿口", listOf(1, 2), blurb = "灯灭了一半"),
+            MapNode(0, NodeType.START, 0.03f, 0.50f, "支气管口", listOf(1, 2), blurb = "气流夹着陌生孢子"),
             MapNode(
-                1, NodeType.MOB, 0.12f, 0.28f, "矿鼠群", listOf(3),
-                waves = longMine(72f, 13f), goldDrop = 22, blurb = "土关", element = WuXing.EARTH
+                1, NodeType.MOB, 0.12f, 0.28f, "飞沫病毒群", listOf(3),
+                waves = longMine(72f, 13f), goldDrop = 22, blurb = "高速游走病原体", element = WuXing.EARTH
             ),
-            MapNode(2, NodeType.EVENT, 0.12f, 0.72f, "古碑", listOf(3), eventId = "stele", blurb = "安静但诡异"),
-            MapNode(3, NodeType.HEAL, 0.22f, 0.50f, "泉水", listOf(4, 5, 6), goldDrop = 10, blurb = "三路再分"),
+            MapNode(2, NodeType.EVENT, 0.12f, 0.72f, "残留抗体", listOf(3), eventId = "stele", blurb = "读取旧感染记录"),
+            MapNode(3, NodeType.HEAL, 0.22f, 0.50f, "氧气交换区", listOf(4, 5, 6), goldDrop = 10, blurb = "恢复活性后三路分流"),
             MapNode(
-                4, NodeType.MOB, 0.34f, 0.22f, "骷髅队", listOf(7),
+                4, NodeType.MOB, 0.34f, 0.22f, "坏死细胞带", listOf(7),
                 waves = longMine(90f, 15f), goldDrop = 24, blurb = "金关", element = WuXing.METAL
             ),
             MapNode(
-                5, NodeType.MOB, 0.34f, 0.50f, "混编巷", listOf(7),
+                5, NodeType.MOB, 0.34f, 0.50f, "肺泡混合区", listOf(7),
                 waves = longMine(88f, 15f), goldDrop = 24, blurb = "水关", element = WuXing.WATER
             ),
             MapNode(
-                6, NodeType.MOB, 0.34f, 0.78f, "幽火廊", listOf(7),
+                6, NodeType.MOB, 0.34f, 0.78f, "孢子气道", listOf(7),
                 waves = listOf(
                     WaveDef(listOf(
                         WaveEnemy(EnemyKind.WISP, EnemyAi.RANGED, 70f, 16f, 98f),
@@ -484,9 +497,9 @@ fun stageDefs(): List<StageDef> = listOf(
                 ),
                 goldDrop = 24, blurb = "火关", element = WuXing.FIRE
             ),
-            MapNode(7, NodeType.SHOP, 0.46f, 0.50f, "黑市", listOf(8, 9, 10), blurb = "按下一关补克制"),
+            MapNode(7, NodeType.SHOP, 0.46f, 0.50f, "肺门补给站", listOf(8, 9, 10), blurb = "按下一区域补充抗体"),
             MapNode(
-                8, NodeType.ELITE, 0.58f, 0.22f, "矿精", listOf(11),
+                8, NodeType.ELITE, 0.58f, 0.22f, "孢子团块", listOf(11),
                 waves = listOf(
                     WaveDef(listOf(WaveEnemy(EnemyKind.BOSS_ORE, EnemyAi.BOSS, 380f, 20f, 102f))),
                     mineCrew(120f, 17f),
@@ -495,17 +508,17 @@ fun stageDefs(): List<StageDef> = listOf(
                 goldDrop = 34, blurb = "土关精英", element = WuXing.EARTH
             ),
             MapNode(
-                9, NodeType.MOB, 0.58f, 0.50f, "塌方区", listOf(11),
+                9, NodeType.MOB, 0.58f, 0.50f, "塌陷肺泡", listOf(11),
                 waves = longMine(110f, 17f), goldDrop = 26, blurb = "土关", element = WuXing.EARTH
             ),
-            MapNode(10, NodeType.TRAP, 0.58f, 0.78f, "落石道", listOf(11), trapDmg = 55f, blurb = "受伤换进度"),
-            MapNode(11, NodeType.REST, 0.70f, 0.50f, "避难所", listOf(12, 13), blurb = "矿工留下的被褥"),
+            MapNode(10, NodeType.TRAP, 0.58f, 0.78f, "缺氧气道", listOf(11), trapDmg = 55f, blurb = "损失活性换取进度"),
+            MapNode(11, NodeType.REST, 0.70f, 0.50f, "静息肺泡", listOf(12, 13), blurb = "短暂恢复氧合"),
             MapNode(
-                12, NodeType.MOB, 0.80f, 0.32f, "锁链大厅", listOf(14),
+                12, NodeType.MOB, 0.80f, 0.32f, "纤毛长廊", listOf(14),
                 waves = longMine(120f, 18f), goldDrop = 28, blurb = "金关", element = WuXing.METAL
             ),
             MapNode(
-                13, NodeType.ELITE, 0.80f, 0.68f, "符文守卫", listOf(14),
+                13, NodeType.ELITE, 0.80f, 0.68f, "变异病毒卫", listOf(14),
                 waves = listOf(
                     WaveDef(listOf(
                         WaveEnemy(EnemyKind.SKELETON, EnemyAi.CHARGER, 200f, 20f, 148f, elite = true),
@@ -518,7 +531,7 @@ fun stageDefs(): List<StageDef> = listOf(
                 goldDrop = 32, blurb = "金关精英", element = WuXing.METAL
             ),
             MapNode(
-                14, NodeType.BOSS, 0.90f, 0.50f, "矿脉魔", listOf(15),
+                14, NodeType.BOSS, 0.90f, 0.50f, "肺部感染核心", listOf(15),
                 waves = listOf(
                     WaveDef(listOf(WaveEnemy(EnemyKind.BOSS_ORE, EnemyAi.BOSS, 700f, 22f, 92f))),
                     WaveDef(listOf(
@@ -540,39 +553,39 @@ fun stageDefs(): List<StageDef> = listOf(
                         WaveEnemy(EnemyKind.SPIKE_SLIME, EnemyAi.CHASE, 140f, 18f, 100f)
                     ))
                 ),
-                goldDrop = 48, blurb = "土关Boss·荐木", element = WuXing.EARTH
+                goldDrop = 48, blurb = "肺部Boss·恢复氧合", element = WuXing.EARTH
             ),
-            MapNode(15, NodeType.EXIT, 0.98f, 0.50f, "天光裂缝", emptyList(), blurb = "第一次像样的呼吸")
+            MapNode(15, NodeType.EXIT, 0.98f, 0.50f, "肺静脉", emptyList(), blurb = "含氧血流向胃肠区")
         )
     ),
     // ── Chapter 3: denser capital ────────────────────────────────
     StageDef(
-        3, "空罐王城", "终局五行 · 黑市换装再冲",
-        bgTop = 0xFF2E1065, bgBot = 0xFF1C1917, chapterIndex = 2,
+        3, "胃肠菌林", "酸潮迷宫 · 分辨菌群与入侵者",
+        bgTop = 0xFFEAA3B6, bgBot = 0xFF74334E, chapterIndex = 2,
         nodes = listOf(
-            MapNode(0, NodeType.START, 0.03f, 0.50f, "城门残骸", listOf(1), blurb = "门栓是糖做的"),
+            MapNode(0, NodeType.START, 0.03f, 0.50f, "胃入口", listOf(1), blurb = "酸潮正在改变路径"),
             MapNode(
-                1, NodeType.MOB, 0.12f, 0.50f, "卫队残部", listOf(2, 3, 4),
+                1, NodeType.MOB, 0.12f, 0.50f, "胃壁菌斑", listOf(2, 3, 4),
                 waves = longMob(115f, 17f, hard = true), goldDrop = 26, blurb = "金关", element = WuXing.METAL
             ),
-            MapNode(2, NodeType.SHOP, 0.24f, 0.22f, "典当行", listOf(5), blurb = "荐装克制下一关"),
+            MapNode(2, NodeType.SHOP, 0.24f, 0.22f, "酶体工坊", listOf(5), blurb = "为下一区域调整装备"),
             MapNode(
-                3, NodeType.MOB, 0.24f, 0.50f, "城墙内廊", listOf(5),
+                3, NodeType.MOB, 0.24f, 0.50f, "胃褶内廊", listOf(5),
                 waves = longMob(120f, 18f, hard = true), goldDrop = 28, blurb = "火关", element = WuXing.FIRE
             ),
-            MapNode(4, NodeType.EVENT, 0.24f, 0.78f, "旧档案", listOf(5), eventId = "archive", blurb = "赌天赋"),
+            MapNode(4, NodeType.EVENT, 0.24f, 0.78f, "菌群档案", listOf(5), eventId = "archive", blurb = "选择共生或排斥"),
             MapNode(
-                5, NodeType.MOB, 0.36f, 0.50f, "广场乱斗", listOf(6, 7, 8),
+                5, NodeType.MOB, 0.36f, 0.50f, "菌群乱战", listOf(6, 7, 8),
                 waves = longMob(128f, 18f, hard = true), goldDrop = 28, blurb = "木关", element = WuXing.WOOD
             ),
-            MapNode(6, NodeType.REST, 0.48f, 0.22f, "钟楼底", listOf(9), blurb = "喘息"),
+            MapNode(6, NodeType.REST, 0.48f, 0.22f, "绒毛静区", listOf(9), blurb = "短暂吸收营养"),
             MapNode(
-                7, NodeType.ELITE, 0.48f, 0.50f, "卫队长", listOf(9),
+                7, NodeType.ELITE, 0.48f, 0.50f, "菌膜队长", listOf(9),
                 waves = longMob(135f, 19f, hard = true), goldDrop = 36, blurb = "金关精英", element = WuXing.METAL
             ),
-            MapNode(8, NodeType.TRAP, 0.48f, 0.78f, "糖浆陷阱", listOf(9), trapDmg = 65f, blurb = "血换进度"),
+            MapNode(8, NodeType.TRAP, 0.48f, 0.78f, "胃酸陷阱", listOf(9), trapDmg = 65f, blurb = "活性换取进度"),
             MapNode(
-                9, NodeType.ELITE, 0.60f, 0.50f, "王室甲虫", listOf(10, 11),
+                9, NodeType.ELITE, 0.60f, 0.50f, "多层菌膜", listOf(10, 11),
                 waves = listOf(
                     WaveDef(listOf(
                         WaveEnemy(EnemyKind.BEETLE, EnemyAi.CHARGER, 260f, 22f, 148f, elite = true),
@@ -585,14 +598,14 @@ fun stageDefs(): List<StageDef> = listOf(
                 ),
                 goldDrop = 40, blurb = "土关精英", element = WuXing.EARTH
             ),
-            MapNode(10, NodeType.HEAL, 0.72f, 0.32f, "圣坛残片", listOf(12), goldDrop = 12, blurb = "最后回血"),
-            MapNode(11, NodeType.SHOP, 0.72f, 0.68f, "黑市摊", listOf(12), blurb = "Boss前换装"),
+            MapNode(10, NodeType.HEAL, 0.72f, 0.32f, "益生菌群", listOf(12), goldDrop = 12, blurb = "最后恢复活性"),
+            MapNode(11, NodeType.SHOP, 0.72f, 0.68f, "肠道补给点", listOf(12), blurb = "感染核心前换装"),
             MapNode(
-                12, NodeType.MOB, 0.82f, 0.50f, "王座甬道", listOf(13),
+                12, NodeType.MOB, 0.82f, 0.50f, "小肠甬道", listOf(13),
                 waves = longMob(150f, 21f, hard = true), goldDrop = 32, blurb = "火关", element = WuXing.FIRE
             ),
             MapNode(
-                13, NodeType.BOSS, 0.92f, 0.50f, "空罐君王", listOf(14),
+                13, NodeType.BOSS, 0.92f, 0.50f, "肠道感染核心", listOf(14),
                 waves = listOf(
                     WaveDef(listOf(WaveEnemy(EnemyKind.BOSS_SLIME, EnemyAi.BOSS, 780f, 24f, 102f))),
                     WaveDef(listOf(
@@ -613,33 +626,33 @@ fun stageDefs(): List<StageDef> = listOf(
                         WaveEnemy(EnemyKind.SKELETON, EnemyAi.CHARGER, 220f, 22f, 148f, elite = true)
                     ))
                 ),
-                goldDrop = 60, blurb = "木关Boss·荐金", element = WuXing.WOOD
+                goldDrop = 60, blurb = "胃肠Boss·平衡菌群", element = WuXing.WOOD
             ),
-            MapNode(14, NodeType.EXIT, 0.98f, 0.50f, "封罐之门", emptyList(), blurb = "故事可以盖上了")
+            MapNode(14, NodeType.EXIT, 0.98f, 0.50f, "肝门静脉", emptyList(), blurb = "携代谢物进入肝脏")
         )
     ),
-    // ── Chapter 4: 墨海秘境（拉长周目）──
+    // ── Chapter 4: 肝脏净化区（拉长周目）──
     StageDef(
-        4, "墨海秘境", "画中有画 · 云涛藏锋",
-        bgTop = 0xFFEDE6D6, bgBot = 0xFF9A9588, chapterIndex = 3,
+        4, "肝脏净化区", "解毒工厂 · 过滤毒素与坏死细胞",
+        bgTop = 0xFFB86A5A, bgBot = 0xFF592B2A, chapterIndex = 3,
         nodes = listOf(
-            MapNode(0, NodeType.START, 0.04f, 0.50f, "入卷口", listOf(1), blurb = "纸香扑面"),
-            MapNode(1, NodeType.MOB, 0.14f, 0.50f, "墨沫潮", listOf(2, 3, 4),
-                waves = longMob(160f, 22f, hard = true), goldDrop = 30, blurb = "水关", element = WuXing.WATER),
-            MapNode(2, NodeType.GOLD, 0.26f, 0.20f, "漂金笺", listOf(5), goldDrop = 34, blurb = "浮在浪上"),
-            MapNode(3, NodeType.SHOP, 0.26f, 0.50f, "画舫商", listOf(5), blurb = "舟上铁匠"),
-            MapNode(4, NodeType.ELITE, 0.26f, 0.80f, "浪里甲", listOf(5),
-                waves = longMob(175f, 23f, hard = true), goldDrop = 40, blurb = "土关精英", element = WuXing.EARTH),
-            MapNode(5, NodeType.MOB, 0.40f, 0.50f, "云脊", listOf(6, 7, 8),
-                waves = longMob(180f, 24f, hard = true), goldDrop = 32, blurb = "金关", element = WuXing.METAL),
-            MapNode(6, NodeType.REST, 0.52f, 0.20f, "闲亭", listOf(9), blurb = "半日闲"),
-            MapNode(7, NodeType.EVENT, 0.52f, 0.50f, "题诗处", listOf(9), eventId = "bard", blurb = "赌一句"),
-            MapNode(8, NodeType.HEAL, 0.52f, 0.80f, "清泉砚", listOf(9), goldDrop = 12, blurb = "洗笔"),
-            MapNode(9, NodeType.ELITE, 0.66f, 0.50f, "墨龙影", listOf(10, 11),
-                waves = longMob(195f, 25f, hard = true), goldDrop = 44, blurb = "火关精英", element = WuXing.FIRE),
-            MapNode(10, NodeType.SHOP, 0.78f, 0.28f, "朱印斋", listOf(12), blurb = "终局换装"),
-            MapNode(11, NodeType.TRAP, 0.78f, 0.72f, "破纸渊", listOf(12), trapDmg = 70f, blurb = "慎行"),
-            MapNode(12, NodeType.BOSS, 0.90f, 0.50f, "海眼巨鲲", listOf(13),
+            MapNode(0, NodeType.START, 0.04f, 0.50f, "肝小叶入口", listOf(1), blurb = "毒素浓度持续上升"),
+            MapNode(1, NodeType.MOB, 0.14f, 0.50f, "毒素潮", listOf(2, 3, 4),
+                waves = longMob(160f, 22f, hard = true), goldDrop = 30, blurb = "代谢废物混编", element = WuXing.WATER),
+            MapNode(2, NodeType.GOLD, 0.26f, 0.20f, "糖原储备", listOf(5), goldDrop = 34, blurb = "补充战斗营养"),
+            MapNode(3, NodeType.SHOP, 0.26f, 0.50f, "酶体装配站", listOf(5), blurb = "强化解毒装备"),
+            MapNode(4, NodeType.ELITE, 0.26f, 0.80f, "脂质菌膜", listOf(5),
+                waves = longMob(175f, 23f, hard = true), goldDrop = 40, blurb = "耐药精英", element = WuXing.EARTH),
+            MapNode(5, NodeType.MOB, 0.40f, 0.50f, "肝窦", listOf(6, 7, 8),
+                waves = longMob(180f, 24f, hard = true), goldDrop = 32, blurb = "坏死细胞聚集", element = WuXing.METAL),
+            MapNode(6, NodeType.REST, 0.52f, 0.20f, "再生区", listOf(9), blurb = "肝细胞短暂修复"),
+            MapNode(7, NodeType.EVENT, 0.52f, 0.50f, "代谢信号", listOf(9), eventId = "bard", blurb = "尝试重排代谢"),
+            MapNode(8, NodeType.HEAL, 0.52f, 0.80f, "葡萄糖池", listOf(9), goldDrop = 12, blurb = "恢复细胞活性"),
+            MapNode(9, NodeType.ELITE, 0.66f, 0.50f, "毒性菌团", listOf(10, 11),
+                waves = longMob(195f, 25f, hard = true), goldDrop = 44, blurb = "高毒精英", element = WuXing.FIRE),
+            MapNode(10, NodeType.SHOP, 0.78f, 0.28f, "解毒工坊", listOf(12), blurb = "终区换装"),
+            MapNode(11, NodeType.TRAP, 0.78f, 0.72f, "胆汁裂谷", listOf(12), trapDmg = 70f, blurb = "酸性高危区"),
+            MapNode(12, NodeType.BOSS, 0.90f, 0.50f, "肝部感染核心", listOf(13),
                 waves = listOf(
                     WaveDef(listOf(WaveEnemy(EnemyKind.BOSS_SLIME, EnemyAi.BOSS, 900f, 28f, 100f))),
                     WaveDef(listOf(
@@ -649,30 +662,30 @@ fun stageDefs(): List<StageDef> = listOf(
                     )),
                     longMob(200f, 26f, hard = true).last()
                 ),
-                goldDrop = 70, blurb = "水关Boss·荐土", element = WuXing.WATER),
-            MapNode(13, NodeType.EXIT, 0.98f, 0.50f, "出卷", emptyList(), blurb = "翻到下一页")
+                goldDrop = 70, blurb = "肝脏Boss·恢复净化", element = WuXing.WATER),
+            MapNode(13, NodeType.EXIT, 0.98f, 0.50f, "肝静脉", emptyList(), blurb = "净化血流进入心脏")
         )
     ),
-    // ── Chapter 5: 画魂峰（终章）──
+    // ── Chapter 5: 心脏循环核（终章）──
     StageDef(
-        5, "画魂峰", "落款之前 · 最后一笔",
-        bgTop = 0xFFE8F0E8, bgBot = 0xFF8FA88C, chapterIndex = 4,
+        5, "心脏循环核", "血流中枢 · 阻止感染扩散全身",
+        bgTop = 0xFFB93650, bgBot = 0xFF3A0B18, chapterIndex = 4,
         nodes = listOf(
-            MapNode(0, NodeType.START, 0.04f, 0.50f, "峰麓", listOf(1), blurb = "松风入袖"),
-            MapNode(1, NodeType.MOB, 0.16f, 0.50f, "翠障", listOf(2, 3),
-                waves = longMob(200f, 26f, hard = true), goldDrop = 34, blurb = "木关", element = WuXing.WOOD),
-            MapNode(2, NodeType.SHOP, 0.30f, 0.28f, "山门铺", listOf(4), blurb = "荐装"),
-            MapNode(3, NodeType.ELITE, 0.30f, 0.72f, "守峰兽", listOf(4),
-                waves = longMob(215f, 27f, hard = true), goldDrop = 46, blurb = "金关精英", element = WuXing.METAL),
-            MapNode(4, NodeType.MOB, 0.46f, 0.50f, "十八盘", listOf(5, 6, 7),
-                waves = longMob(220f, 28f, hard = true), goldDrop = 36, blurb = "土关", element = WuXing.EARTH),
-            MapNode(5, NodeType.HEAL, 0.60f, 0.22f, "天池", listOf(8), goldDrop = 14, blurb = "洗尘"),
-            MapNode(6, NodeType.REST, 0.60f, 0.50f, "云榻", listOf(8), blurb = "小憩"),
-            MapNode(7, NodeType.EVENT, 0.60f, 0.78f, "残碑", listOf(8), eventId = "stele", blurb = "古意"),
-            MapNode(8, NodeType.ELITE, 0.74f, 0.50f, "峰影双煞", listOf(9),
-                waves = longMob(240f, 29f, hard = true), goldDrop = 50, blurb = "火关精英", element = WuXing.FIRE),
-            MapNode(9, NodeType.SHOP, 0.84f, 0.50f, "绝顶市", listOf(10), blurb = "Boss前"),
-            MapNode(10, NodeType.BOSS, 0.93f, 0.50f, "画魂真形", listOf(11),
+            MapNode(0, NodeType.START, 0.04f, 0.50f, "右心房", listOf(1), blurb = "感染正随静脉回流"),
+            MapNode(1, NodeType.MOB, 0.16f, 0.50f, "右心室", listOf(2, 3),
+                waves = longMob(200f, 26f, hard = true), goldDrop = 34, blurb = "湍流病原体", element = WuXing.WOOD),
+            MapNode(2, NodeType.SHOP, 0.30f, 0.28f, "瓣膜补给站", listOf(4), blurb = "调整最终装备"),
+            MapNode(3, NodeType.ELITE, 0.30f, 0.72f, "血栓菌团", listOf(4),
+                waves = longMob(215f, 27f, hard = true), goldDrop = 46, blurb = "阻塞型精英", element = WuXing.METAL),
+            MapNode(4, NodeType.MOB, 0.46f, 0.50f, "肺循环回路", listOf(5, 6, 7),
+                waves = longMob(220f, 28f, hard = true), goldDrop = 36, blurb = "高速血流战", element = WuXing.EARTH),
+            MapNode(5, NodeType.HEAL, 0.60f, 0.22f, "含氧血池", listOf(8), goldDrop = 14, blurb = "恢复细胞活性"),
+            MapNode(6, NodeType.REST, 0.60f, 0.50f, "窦房结", listOf(8), blurb = "同步战斗节律"),
+            MapNode(7, NodeType.EVENT, 0.60f, 0.78f, "心肌记忆", listOf(8), eventId = "stele", blurb = "读取循环记录"),
+            MapNode(8, NodeType.ELITE, 0.74f, 0.50f, "冠脉双生菌", listOf(9),
+                waves = longMob(240f, 29f, hard = true), goldDrop = 50, blurb = "双生高危精英", element = WuXing.FIRE),
+            MapNode(9, NodeType.SHOP, 0.84f, 0.50f, "左心房工坊", listOf(10), blurb = "终战前换装"),
+            MapNode(10, NodeType.BOSS, 0.93f, 0.50f, "循环变异母体", listOf(11),
                 waves = listOf(
                     WaveDef(listOf(WaveEnemy(EnemyKind.BOSS_SLIME, EnemyAi.BOSS, 1000f, 30f, 100f))),
                     WaveDef(listOf(
@@ -685,8 +698,8 @@ fun stageDefs(): List<StageDef> = listOf(
                         WaveEnemy(EnemyKind.WISP, EnemyAi.RANGED, 200f, 26f, 100f)
                     ))
                 ),
-                goldDrop = 90, blurb = "木关Boss·荐金", element = WuXing.WOOD),
-            MapNode(11, NodeType.EXIT, 0.99f, 0.22f, "落款", emptyList(), blurb = "一卷终了")
+                goldDrop = 90, blurb = "终局Boss·阻止全身扩散", element = WuXing.WOOD),
+            MapNode(11, NodeType.EXIT, 0.99f, 0.22f, "主动脉出口", emptyList(), blurb = "本轮感染周期完成")
         )
     )
 )

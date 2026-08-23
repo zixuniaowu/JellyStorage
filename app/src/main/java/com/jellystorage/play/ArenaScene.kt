@@ -18,6 +18,7 @@ import kotlin.math.sin
  */
 fun DrawScope.drawArenaBackdrop(
     chapterIndex: Int,
+    environment: ArenaEnvironment,
     screenW: Float,
     screenH: Float,
     camX: Float,
@@ -71,7 +72,7 @@ fun DrawScope.drawArenaBackdrop(
     )
 
     // 纸纹方格（淡）
-    val tile = 72f
+    val tile = 66f + environment.variant * 9f
     var gy = 0f
     var row = 0
     while (gy < worldH) {
@@ -104,7 +105,8 @@ fun DrawScope.drawArenaBackdrop(
     for (i in 0..20) {
         val t = i / 20f
         val px = worldW * (0.10f + t * 0.80f)
-        val py = worldH * (0.40f + sin(t * 3.0f) * 0.11f + cos(t * 1.6f) * 0.05f)
+        val phase = (environment.visualSeed % 17) * 0.11f
+        val py = worldH * (0.40f + sin(t * (2.7f + environment.variant * 0.22f) + phase) * 0.11f + cos(t * 1.6f + phase) * 0.05f)
         drawOval(
             palette.path.copy(alpha = 0.22f),
             topLeft = Offset(wx(px - 44f), wy(py - 18f)),
@@ -115,11 +117,12 @@ fun DrawScope.drawArenaBackdrop(
         }
     }
 
-    drawInkFieldProps(ch, palette, worldW, worldH, time, wx, wy, wr)
+    drawOrganFieldProps(ch, palette, worldW, worldH, time, environment.visualSeed, wx, wy, wr)
+    drawRoomIdentityMark(environment, palette, worldW, worldH, wx, wy, wr)
 
-    // 草/雪/墨点装饰（按章）
-    val bladeCount = 70
-    for (i in 0 until bladeCount) {
+    // 细胞碎屑与纤维，密度较低，避免盖过攻击预警。
+    val particleCount = 42
+    for (i in 0 until particleCount) {
         val seed = i * 97 + 13
         val bx = ((seed * 53) % 1000) / 1000f * worldW
         val by = ((seed * 91) % 1000) / 1000f * worldH
@@ -127,27 +130,15 @@ fun DrawScope.drawArenaBackdrop(
         val sx = wx(bx)
         val sy = wy(by)
         if (sx < -20f || sx > screenW + 20f || sy < -20f || sy > screenH + 20f) continue
-        when (ch) {
-            2 -> { // 雪点
-                drawCircle(Color(0x88F8FAFC), wr(1.4f + (i % 3) * 0.5f), Offset(sx, sy))
-            }
-            3 -> { // 墨点
-                drawCircle(Color(0x223F3F46), wr(2f + (i % 2)), Offset(sx + sway * 0.3f, sy))
-            }
-            else -> {
-                val gh = wr(6f + (i % 5))
-                drawLine(
-                    palette.blade.copy(alpha = 0.45f),
-                    Offset(sx, sy),
-                    Offset(sx + sway, sy - gh),
-                    strokeWidth = wr(1.6f),
-                    cap = StrokeCap.Round
-                )
-                if (i % 7 == 0 && ch == 0) {
-                    drawCircle(Color(0x88B91C1C).copy(alpha = 0.35f), wr(2.2f), Offset(sx + sway, sy - gh))
-                }
-            }
-        }
+        val gh = wr(4f + (i % 4))
+        drawLine(
+            palette.blade.copy(alpha = 0.22f),
+            Offset(sx - sway * 0.2f, sy + gh),
+            Offset(sx + sway * 0.4f, sy - gh),
+            strokeWidth = wr(1.4f),
+            cap = StrokeCap.Round
+        )
+        if (i % 5 == 0) drawCircle(palette.mote.copy(alpha = 0.20f), wr(2.4f), Offset(sx, sy))
     }
 
     // 花粉 / 萤火 / 金尘
@@ -198,46 +189,115 @@ private data class ArenaPalette(
 )
 
 private fun arenaPalette(ch: Int): ArenaPalette = when (ch) {
-    1 -> ArenaPalette( // 秋壑
-        voidTop = Color(0xFF1A120C), voidBot = Color(0xFF2A1C12),
-        fieldTop = Color(0xFFC4A574), fieldBot = Color(0xFF9A7348),
-        patch = Color(0xFF8B5E34), path = Color(0xFF5C4033),
-        rim = Color(0xFFB45309), haze = Color(0xFFD97706),
-        blade = Color(0xFFA16207), mote = Color(0xFFFBBF24),
-        glow = Color(0xFFF59E0B), prop = Color(0xFF5C4033)
+    1 -> ArenaPalette( // 肺泡：冷蓝气流与淡粉组织
+        voidTop = Color(0xFF101827), voidBot = Color(0xFF1E293B),
+        fieldTop = Color(0xFFB9D8DE), fieldBot = Color(0xFF7FA9B5),
+        patch = Color(0xFF67A6B4), path = Color(0xFFE9A8AE),
+        rim = Color(0xFF5B8FA3), haze = Color(0xFFBAE6FD),
+        blade = Color(0xFF7DD3FC), mote = Color(0xFFF0F9FF),
+        glow = Color(0xFF38BDF8), prop = Color(0xFF4F8191)
     )
-    2 -> ArenaPalette( // 雪夜
-        voidTop = Color(0xFF0A0E14), voidBot = Color(0xFF141A24),
-        fieldTop = Color(0xFF3A4558), fieldBot = Color(0xFF252C3A),
-        patch = Color(0xFF4B5568), path = Color(0xFF64748B),
-        rim = Color(0xFF94A3B8), haze = Color(0xFFE2E8F0),
-        blade = Color(0xFFCBD5E1), mote = Color(0xFFF8FAFC),
-        glow = Color(0xFF7DD3FC), prop = Color(0xFF475569)
+    2 -> ArenaPalette( // 胃肠：酸性紫红与菌群荧光
+        voidTop = Color(0xFF24101F), voidBot = Color(0xFF3B1630),
+        fieldTop = Color(0xFFC9849F), fieldBot = Color(0xFF8F526F),
+        patch = Color(0xFFA8557A), path = Color(0xFFF2A65A),
+        rim = Color(0xFF9F365F), haze = Color(0xFFF9A8D4),
+        blade = Color(0xFFF0ABFC), mote = Color(0xFFFDE68A),
+        glow = Color(0xFFFB7185), prop = Color(0xFF7E3155)
     )
-    3 -> ArenaPalette( // 墨海
-        voidTop = Color(0xFF12110F), voidBot = Color(0xFF1C1B18),
-        fieldTop = Color(0xFFB8B0A0), fieldBot = Color(0xFF8A8478),
-        patch = Color(0xFF6B655C), path = Color(0xFF3F3F46),
-        rim = Color(0xFF52525B), haze = Color(0xFFE7E5E4),
-        blade = Color(0xFF57534E), mote = Color(0xFFD6D3D1),
-        glow = Color(0xFFA8A29E), prop = Color(0xFF44403C)
+    3 -> ArenaPalette( // 肝脏：深赭肝小叶与胆汁色
+        voidTop = Color(0xFF1F1110), voidBot = Color(0xFF351815),
+        fieldTop = Color(0xFF9E5B4E), fieldBot = Color(0xFF6F382F),
+        patch = Color(0xFF7F463A), path = Color(0xFFB8A34A),
+        rim = Color(0xFF6B2F28), haze = Color(0xFFF59E8B),
+        blade = Color(0xFFD6B85A), mote = Color(0xFFFDE68A),
+        glow = Color(0xFFEF7A65), prop = Color(0xFF5A2C27)
     )
-    4 -> ArenaPalette( // 空翠峰
-        voidTop = Color(0xFF0C1410), voidBot = Color(0xFF152018),
-        fieldTop = Color(0xFFA3B89E), fieldBot = Color(0xFF6F8F72),
-        patch = Color(0xFF4A6741), path = Color(0xFF3F6212),
-        rim = Color(0xFF365B37), haze = Color(0xFF86EFAC),
-        blade = Color(0xFF4D7C0F), mote = Color(0xFFBBF7D0),
-        glow = Color(0xFF4ADE80), prop = Color(0xFF365B37)
+    4 -> ArenaPalette( // 心脏：深红心肌与高速血流
+        voidTop = Color(0xFF20090D), voidBot = Color(0xFF3F0D17),
+        fieldTop = Color(0xFF9F344A), fieldBot = Color(0xFF641E31),
+        patch = Color(0xFF7F2440), path = Color(0xFFE76B75),
+        rim = Color(0xFF7F1D2D), haze = Color(0xFFFB7185),
+        blade = Color(0xFFF43F5E), mote = Color(0xFFFFB4B8),
+        glow = Color(0xFFEF4444), prop = Color(0xFF581527)
     )
-    else -> ArenaPalette( // 春山
-        voidTop = Color(0xFF0E1612), voidBot = Color(0xFF1A261C),
-        fieldTop = Color(0xFFD4C4A0), fieldBot = Color(0xFFA8B88A),
-        patch = Color(0xFF6B8F5A), path = Color(0xFF78716C),
-        rim = Color(0xFF5C4033), haze = Color(0xFF86EFAC),
-        blade = Color(0xFF3F6212), mote = Color(0xFFFDE68A),
-        glow = Color(0xFFB45309), prop = Color(0xFF1F3D2A)
+    else -> ArenaPalette( // 皮肤：暖色表皮与创口组织液
+        voidTop = Color(0xFF241514), voidBot = Color(0xFF3A201D),
+        fieldTop = Color(0xFFE0B59D), fieldBot = Color(0xFFB97868),
+        patch = Color(0xFFC98675), path = Color(0xFF9B3D48),
+        rim = Color(0xFF7E4037), haze = Color(0xFFFCA5A5),
+        blade = Color(0xFFBE6B61), mote = Color(0xFFFFD1C7),
+        glow = Color(0xFFEF6C68), prop = Color(0xFF713B35)
     )
+}
+
+/** 每章使用器官结构作地标，保留水墨轮廓但不再出现山石树木。 */
+private fun DrawScope.drawOrganFieldProps(
+    ch: Int,
+    palette: ArenaPalette,
+    worldW: Float,
+    worldH: Float,
+    time: Float,
+    roomSeed: Int,
+    wx: (Float) -> Float,
+    wy: (Float) -> Float,
+    wr: (Float) -> Float
+) {
+    for (i in 0 until 18) {
+        val sx = ((i * 173 + 71 + roomSeed * 11) % 1000).let { if (it < 0) it + 1000 else it } / 1000f
+        val sy = ((i * 97 + 31 + roomSeed * 7) % 1000).let { if (it < 0) it + 1000 else it } / 1000f
+        val x = worldW * (0.07f + sx * 0.86f)
+        val y = worldH * (0.08f + sy * 0.84f)
+        val p = Offset(wx(x), wy(y))
+        when (ch) {
+            0 -> { // 表皮细胞与凝血点
+                val r = wr(15f + i % 4 * 3f)
+                drawCircle(palette.prop.copy(alpha = 0.10f), r, p)
+                drawCircle(palette.rim.copy(alpha = 0.30f), r, p, style = Stroke(wr(1.8f)))
+                if (i % 3 == 0) drawCircle(Color(0x88FDE68A), wr(4f), p)
+            }
+            1 -> { // 肺泡簇
+                val breath = 1f + sin(time * 1.4f + i) * 0.06f
+                for (a in 0 until 4) {
+                    val ang = a * 1.5708f + i * 0.2f
+                    val c = Offset(p.x + cos(ang) * wr(12f), p.y + sin(ang) * wr(10f))
+                    drawCircle(palette.haze.copy(alpha = 0.10f), wr((10f + a) * breath), c)
+                    drawCircle(palette.rim.copy(alpha = 0.26f), wr((10f + a) * breath), c, style = Stroke(wr(1.5f)))
+                }
+            }
+            2 -> { // 肠绒毛
+                val hh = wr(24f + i % 5 * 4f)
+                val sway = wr(sin(time * 1.8f + i) * 3f)
+                drawLine(palette.rim.copy(alpha = 0.32f), p, Offset(p.x + sway, p.y - hh), wr(6f), StrokeCap.Round)
+                drawCircle(palette.mote.copy(alpha = 0.24f), wr(5f), Offset(p.x + sway, p.y - hh))
+            }
+            3 -> { // 肝小叶六角环
+                val path = Path()
+                val r = wr(19f + i % 3 * 4f)
+                for (k in 0..6) {
+                    val ang = k * 1.0472f
+                    val q = Offset(p.x + cos(ang) * r, p.y + sin(ang) * r)
+                    if (k == 0) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y)
+                }
+                drawPath(path, palette.rim.copy(alpha = 0.28f), style = Stroke(wr(1.8f)))
+                drawCircle(palette.mote.copy(alpha = 0.18f), wr(4f), p)
+            }
+            else -> { // 红细胞随心搏流动
+                val beat = sin(time * 4.2f + i * 0.5f) * wr(2f)
+                drawOval(
+                    palette.mote.copy(alpha = 0.22f),
+                    topLeft = Offset(p.x - wr(12f) + beat, p.y - wr(6f)),
+                    size = Size(wr(24f), wr(12f))
+                )
+                drawOval(
+                    palette.rim.copy(alpha = 0.34f),
+                    topLeft = Offset(p.x - wr(12f) + beat, p.y - wr(6f)),
+                    size = Size(wr(24f), wr(12f)),
+                    style = Stroke(wr(1.6f))
+                )
+            }
+        }
+    }
 }
 
 private fun DrawScope.drawInkFieldProps(
@@ -246,6 +306,7 @@ private fun DrawScope.drawInkFieldProps(
     worldW: Float,
     worldH: Float,
     time: Float,
+    roomSeed: Int,
     wx: (Float) -> Float,
     wy: (Float) -> Float,
     wr: (Float) -> Float
@@ -260,18 +321,24 @@ private fun DrawScope.drawInkFieldProps(
         worldW * 0.28f to worldH * 0.30f,
         worldW * 0.72f to worldH * 0.72f
     )
-    landmarks.forEachIndexed { idx, (x, y) ->
+    val rotated = if (landmarks.isEmpty()) landmarks else {
+        val shift = (roomSeed and Int.MAX_VALUE) % landmarks.size
+        landmarks.drop(shift) + landmarks.take(shift)
+    }
+    rotated.forEachIndexed { idx, (x, y) ->
+        val jitterX = (((roomSeed + idx * 37) % 9) - 4) * worldW * 0.006f
+        val jitterY = (((roomSeed + idx * 53) % 9) - 4) * worldH * 0.006f
         when (ch) {
-            2 -> drawInkCrystal(wx(x), wy(y), wr(22f + idx * 1.5f), time + idx, palette)
-            1 -> drawInkRock(wx(x), wy(y), wr(18f + idx % 4 * 3f), palette, angular = true)
-            3 -> drawInkRock(wx(x), wy(y), wr(16f + idx % 3 * 4f), palette, angular = false)
-            else -> drawInkPineTop(wx(x), wy(y), wr(26f + (idx % 3) * 5f), palette)
+            2 -> drawInkCrystal(wx(x + jitterX), wy(y + jitterY), wr(22f + idx * 1.5f), time + idx, palette)
+            1 -> drawInkRock(wx(x + jitterX), wy(y + jitterY), wr(18f + idx % 4 * 3f), palette, angular = true)
+            3 -> drawInkRock(wx(x + jitterX), wy(y + jitterY), wr(16f + idx % 3 * 4f), palette, angular = false)
+            else -> drawInkPineTop(wx(x + jitterX), wy(y + jitterY), wr(26f + (idx % 3) * 5f), palette)
         }
     }
 
     for (i in 0 until 14) {
-        val rx = ((i * 173 + 41) % 1000) / 1000f * (worldW - 160f) + 80f
-        val ry = ((i * 97 + 19) % 1000) / 1000f * (worldH - 160f) + 80f
+        val rx = ((i * 173 + 41 + roomSeed * 11) % 1000).let { if (it < 0) it + 1000 else it } / 1000f * (worldW - 160f) + 80f
+        val ry = ((i * 97 + 19 + roomSeed * 7) % 1000).let { if (it < 0) it + 1000 else it } / 1000f * (worldH - 160f) + 80f
         if (rx in worldW * 0.42f..worldW * 0.58f && ry in worldH * 0.40f..worldH * 0.60f) continue
         drawInkRock(wx(rx), wy(ry), wr(9f + i % 6), palette, angular = ch == 1)
     }
@@ -281,6 +348,66 @@ private fun DrawScope.drawInkFieldProps(
         val bx = worldW * 0.5f + cos(ang) * worldW * 0.36f
         val by = worldH * 0.5f + sin(ang) * worldH * 0.34f
         drawInkBush(wx(bx), wy(by), wr(14f + i % 5), palette)
+    }
+}
+
+/** 大型地面构图与环境技使用同一图形语言，玩家一进房就能认出房间规则。 */
+private fun DrawScope.drawRoomIdentityMark(
+    environment: ArenaEnvironment,
+    palette: ArenaPalette,
+    worldW: Float,
+    worldH: Float,
+    wx: (Float) -> Float,
+    wy: (Float) -> Float,
+    wr: (Float) -> Float
+) {
+    if (!environment.active) return
+    val color = Color(environment.color)
+    val center = Offset(
+        wx(worldW * (0.44f + environment.variant * 0.06f)),
+        wy(worldH * (0.46f + ((environment.visualSeed % 3) - 1) * 0.06f))
+    )
+    when (environment.pattern) {
+        ArenaHazardPattern.CIRCLE -> {
+            val spots = listOf(-0.24f to -0.12f, 0.18f to -0.18f, 0.06f to 0.22f)
+            spots.forEachIndexed { index, (ox, oy) ->
+                val c = Offset(wx(worldW * (0.5f + ox)), wy(worldH * (0.5f + oy)))
+                drawCircle(color.copy(alpha = 0.07f), wr(58f + index * 9f), c)
+                drawCircle(color.copy(alpha = 0.22f), wr(45f + index * 8f), c, style = Stroke(wr(2f)))
+                drawCircle(palette.rim.copy(alpha = 0.14f), wr(12f), c)
+            }
+        }
+        ArenaHazardPattern.RING -> {
+            repeat(3) { index ->
+                drawCircle(
+                    color.copy(alpha = 0.18f - index * 0.035f),
+                    wr(78f + index * 58f), center,
+                    style = Stroke(wr(2.2f + index * 0.5f))
+                )
+            }
+            repeat(8) { index ->
+                val a = index * 0.785f
+                val px = center.x + cos(a) * wr(190f)
+                val py = center.y + sin(a) * wr(190f)
+                drawCircle(color.copy(alpha = 0.32f), wr(5f), Offset(px, py))
+            }
+        }
+        ArenaHazardPattern.LINE -> {
+            val horizontal = (environment.visualSeed and 1) == 0
+            repeat(3) { index ->
+                val offset = (index - 1) * 94f
+                if (horizontal) {
+                    val y = wy(worldH * 0.5f + offset)
+                    drawLine(color.copy(alpha = 0.16f), Offset(wx(55f), y), Offset(wx(worldW - 55f), y), wr(13f), StrokeCap.Round)
+                    drawLine(palette.rim.copy(alpha = 0.28f), Offset(wx(55f), y), Offset(wx(worldW - 55f), y), wr(2f))
+                } else {
+                    val x = wx(worldW * 0.5f + offset)
+                    drawLine(color.copy(alpha = 0.16f), Offset(x, wy(55f)), Offset(x, wy(worldH - 55f)), wr(13f), StrokeCap.Round)
+                    drawLine(palette.rim.copy(alpha = 0.28f), Offset(x, wy(55f)), Offset(x, wy(worldH - 55f)), wr(2f))
+                }
+            }
+        }
+        ArenaHazardPattern.NONE -> Unit
     }
 }
 

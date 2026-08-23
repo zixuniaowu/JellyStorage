@@ -9,6 +9,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
@@ -30,37 +33,183 @@ fun DrawScope.drawInkHero(
     facing: Float,
     skin: CharacterSkin,
     hitFlash: Float = 0f,
-    bob: Float = 0f
+    bob: Float = 0f,
+    drawPlaceholderWeapon: Boolean = true,
+    hero: HeroClass? = null
 ) {
     val s = bodyR * 0.95f
     val y = cy + bob
     val dir = if (facing >= 0f) 1f else -1f
     val flash = hitFlash > 0.05f
-    val body = if (flash) PaperLite else skin.outfit.copy(
-        red = skin.outfit.red * 0.55f + 0.15f,
-        green = skin.outfit.green * 0.55f + 0.12f,
-        blue = skin.outfit.blue * 0.55f + 0.10f
+    val outfit = skin.outfit
+    val body = if (flash) PaperLite else Color(
+        red = outfit.red * 0.55f + 0.15f,
+        green = outfit.green * 0.55f + 0.12f,
+        blue = outfit.blue * 0.55f + 0.10f
     )
     val ink = if (flash) Color.White else InkDark
 
     // 墨影
     drawOval(Color(0x45000000), Offset(cx - s * 0.7f, y + s * 0.55f), Size(s * 1.4f, s * 0.32f))
-    // 写意躯干（一笔圆）
-    drawCircle(body.copy(alpha = 0.92f), s * 0.72f, Offset(cx, y + s * 0.05f))
-    drawCircle(ink.copy(alpha = 0.55f), s * 0.72f, Offset(cx, y + s * 0.05f), style = Stroke(s * 0.08f))
-    // 头
-    drawCircle(if (flash) PaperLite else Color(0xFFE8D9B8), s * 0.48f, Offset(cx, y - s * 0.55f))
+    // 职业骨架先决定轮廓，装备再叠加其上；不再让三职业共用一个圆躯干。
+    when (hero) {
+        HeroClass.WARRIOR -> {
+            val torso = Path().apply {
+                moveTo(cx - s * 0.68f, y - s * 0.22f)
+                lineTo(cx - s * 0.56f, y + s * 0.46f)
+                lineTo(cx - s * 0.28f, y + s * 0.7f)
+                lineTo(cx + s * 0.28f, y + s * 0.7f)
+                lineTo(cx + s * 0.56f, y + s * 0.46f)
+                lineTo(cx + s * 0.68f, y - s * 0.22f)
+                quadraticTo(cx, y - s * 0.48f, cx - s * 0.68f, y - s * 0.22f)
+                close()
+            }
+            drawPath(torso, Brush.verticalGradient(listOf(body, body.copy(alpha = 0.72f))))
+            drawPath(torso, ink.copy(alpha = 0.76f), style = Stroke(s * 0.075f))
+            // 分腿站姿与握武器前臂。
+            drawLine(ink.copy(alpha = 0.78f), Offset(cx - s * 0.24f, y + s * 0.55f), Offset(cx - s * 0.42f, y + s * 0.9f), s * 0.2f, StrokeCap.Round)
+            drawLine(ink.copy(alpha = 0.78f), Offset(cx + s * 0.24f, y + s * 0.55f), Offset(cx + s * 0.42f, y + s * 0.9f), s * 0.2f, StrokeCap.Round)
+            drawLine(body, Offset(cx + dir * s * 0.48f, y - s * 0.02f), Offset(cx + dir * s * 0.82f, y + s * 0.18f), s * 0.25f, StrokeCap.Round)
+            drawLine(ink.copy(alpha = 0.7f), Offset(cx - s * 0.54f, y + s * 0.28f), Offset(cx + s * 0.54f, y + s * 0.3f), s * 0.11f, StrokeCap.Round)
+        }
+        HeroClass.MAGE -> {
+            // 披风在后，窄肩长袍在前，移动时像一枚飘动水滴。
+            val cape = Path().apply {
+                moveTo(cx - s * 0.5f, y - s * 0.3f)
+                quadraticTo(cx - s * 0.85f, y + s * 0.3f, cx - s * 0.7f, y + s * 0.92f)
+                quadraticTo(cx, y + s * 0.72f, cx + s * 0.7f, y + s * 0.92f)
+                quadraticTo(cx + s * 0.85f, y + s * 0.3f, cx + s * 0.5f, y - s * 0.3f)
+                close()
+            }
+            drawPath(cape, body.copy(alpha = 0.58f))
+            drawPath(cape, ink.copy(alpha = 0.52f), style = Stroke(s * 0.065f))
+            val robe = Path().apply {
+                moveTo(cx - s * 0.4f, y - s * 0.18f)
+                lineTo(cx - s * 0.52f, y + s * 0.68f)
+                lineTo(cx, y + s * 0.84f)
+                lineTo(cx + s * 0.52f, y + s * 0.68f)
+                lineTo(cx + s * 0.4f, y - s * 0.18f)
+                close()
+            }
+            drawPath(robe, Brush.verticalGradient(listOf(body, body.copy(alpha = 0.68f))))
+            drawPath(robe, ink.copy(alpha = 0.7f), style = Stroke(s * 0.065f))
+            drawLine(body, Offset(cx + dir * s * 0.32f, y), Offset(cx + dir * s * 0.74f, y - s * 0.08f), s * 0.18f, StrokeCap.Round)
+            drawLine(skin.accent.copy(alpha = 0.78f), Offset(cx - s * 0.34f, y + s * 0.3f), Offset(cx + s * 0.34f, y + s * 0.3f), s * 0.075f, StrokeCap.Round)
+        }
+        HeroClass.TAOIST -> {
+            // 宽袖、直身、开衩道袍，和法师的披风轮廓区分。
+            val robe = Path().apply {
+                moveTo(cx - s * 0.5f, y - s * 0.24f)
+                lineTo(cx - s * 0.62f, y + s * 0.7f)
+                lineTo(cx - s * 0.12f, y + s * 0.82f)
+                lineTo(cx, y + s * 0.34f)
+                lineTo(cx + s * 0.12f, y + s * 0.82f)
+                lineTo(cx + s * 0.62f, y + s * 0.7f)
+                lineTo(cx + s * 0.5f, y - s * 0.24f)
+                close()
+            }
+            drawPath(robe, Brush.verticalGradient(listOf(body, body.copy(alpha = 0.66f))))
+            drawPath(robe, ink.copy(alpha = 0.72f), style = Stroke(s * 0.07f))
+            for (side in -1..1 step 2) {
+                drawLine(body, Offset(cx + side * s * 0.38f, y - s * 0.02f), Offset(cx + side * s * 0.86f, y + s * 0.18f), s * 0.27f, StrokeCap.Round)
+                drawLine(ink.copy(alpha = 0.5f), Offset(cx + side * s * 0.42f, y), Offset(cx + side * s * 0.84f, y + s * 0.18f), s * 0.045f, StrokeCap.Round)
+            }
+            drawLine(skin.accent.copy(alpha = 0.8f), Offset(cx - s * 0.42f, y + s * 0.32f), Offset(cx + s * 0.42f, y + s * 0.32f), s * 0.075f, StrokeCap.Round)
+        }
+        null -> {
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(body.copy(alpha = 0.96f), body.copy(alpha = 0.82f), body.copy(alpha = 0.5f)),
+                    center = Offset(cx - s * 0.2f, y - s * 0.1f), radius = s * 0.95f
+                ),
+                s * 0.72f, Offset(cx, y + s * 0.05f)
+            )
+            drawCircle(ink.copy(alpha = 0.75f), s * 0.72f, Offset(cx, y + s * 0.05f), style = Stroke(s * 0.07f))
+            drawLine(ink.copy(alpha = 0.5f), Offset(cx - s * 0.5f, y + s * 0.3f), Offset(cx + s * 0.5f, y + s * 0.32f), s * 0.09f, StrokeCap.Round)
+        }
+    }
+    // 头：宣纸色 + 体积渐变
+    drawCircle(
+        Brush.radialGradient(
+            listOf(if (flash) PaperLite else skin.skinTone, if (flash) Color.White else skin.skinTone.copy(alpha = 0.82f)),
+            center = Offset(cx - s * 0.12f, y - s * 0.65f), radius = s * 0.55f
+        ),
+        s * 0.48f, Offset(cx, y - s * 0.55f)
+    )
     drawCircle(ink.copy(alpha = 0.65f), s * 0.48f, Offset(cx, y - s * 0.55f), style = Stroke(s * 0.07f))
-    // 发（侧锋）
-    drawOval(skin.hair.copy(alpha = 0.85f), Offset(cx - s * 0.48f, y - s * 1.05f), Size(s * 0.96f, s * 0.55f))
-    // 眼（两点墨）
-    drawCircle(ink, s * 0.07f, Offset(cx - s * 0.14f * dir, y - s * 0.55f))
-    drawCircle(ink, s * 0.07f, Offset(cx + s * 0.18f * dir, y - s * 0.55f))
-    // 武器：一笔锋
-    val wx0 = cx + dir * s * 0.55f
-    val wy0 = y - s * 0.1f
-    drawLine(ink, Offset(wx0, wy0), Offset(wx0 + dir * s * 0.95f, wy0 - s * 0.55f), s * 0.12f, StrokeCap.Round)
-    drawLine(Cinnabar.copy(alpha = 0.55f), Offset(wx0 + dir * s * 0.2f, wy0 - s * 0.05f), Offset(wx0 + dir * s * 0.9f, wy0 - s * 0.5f), s * 0.05f, StrokeCap.Round)
+    // 发（侧锋两笔）
+    drawOval(skin.hair.copy(alpha = 0.88f), Offset(cx - s * 0.48f, y - s * 1.05f), Size(s * 0.96f, s * 0.55f))
+    drawOval(skin.hair.copy(alpha = 0.5f), Offset(cx - s * 0.3f, y - s * 1.12f), Size(s * 0.6f, s * 0.35f))
+    when (hero) {
+        HeroClass.WARRIOR -> {
+            drawArc(skin.accent, 195f, 150f, false, Offset(cx - s * 0.5f, y - s * 1.04f), Size(s, s * 0.55f), style = Stroke(s * 0.11f, cap = StrokeCap.Round))
+            drawLine(skin.accent, Offset(cx, y - s * 1.06f), Offset(cx + dir * s * 0.18f, y - s * 1.35f), s * 0.1f, StrokeCap.Round)
+        }
+        HeroClass.MAGE -> {
+            val hat = Path().apply {
+                moveTo(cx - s * 0.62f, y - s * 0.92f)
+                lineTo(cx + s * 0.62f, y - s * 0.92f)
+                lineTo(cx + dir * s * 0.12f, y - s * 1.72f)
+                close()
+            }
+            drawPath(hat, body.copy(alpha = 0.94f)); drawPath(hat, ink.copy(alpha = 0.72f), style = Stroke(s * 0.065f))
+            drawLine(skin.accent, Offset(cx - s * 0.66f, y - s * 0.9f), Offset(cx + s * 0.66f, y - s * 0.9f), s * 0.09f, StrokeCap.Round)
+        }
+        HeroClass.TAOIST -> {
+            drawCircle(skin.hair, s * 0.2f, Offset(cx, y - s * 1.15f))
+            drawLine(skin.accent, Offset(cx - s * 0.36f, y - s * 0.9f), Offset(cx + s * 0.36f, y - s * 0.9f), s * 0.075f, StrokeCap.Round)
+            drawLine(Cinnabar.copy(alpha = 0.85f), Offset(cx + dir * s * 0.38f, y - s * 0.78f), Offset(cx + dir * s * 0.52f, y - s * 0.45f), s * 0.05f, StrokeCap.Round)
+        }
+        null -> Unit
+    }
+    // 眼（两点墨，随朝向）
+    val eye = if (flash) ink else skin.eye
+    drawCircle(eye, s * 0.07f, Offset(cx - s * 0.14f * dir, y - s * 0.55f))
+    drawCircle(eye, s * 0.07f, Offset(cx + s * 0.18f * dir, y - s * 0.55f))
+    // 腮红一点朱
+    drawCircle(Cinnabar.copy(alpha = 0.3f), s * 0.05f, Offset(cx + dir * s * 0.3f, y - s * 0.46f))
+    if (drawPlaceholderWeapon) {
+        // 非战斗预览的通用兵器；战斗中由真实装备图谱替代。
+        val wx0 = cx + dir * s * 0.55f
+        val wy0 = y - s * 0.1f
+        val tipX = wx0 + dir * s * 0.95f
+        val tipY = wy0 - s * 0.55f
+        drawLine(ink, Offset(wx0, wy0), Offset(tipX, tipY), s * 0.13f, StrokeCap.Round)
+        drawLine(Color.White.copy(alpha = 0.25f), Offset(wx0 + dir * s * 0.1f, wy0 - s * 0.08f), Offset(tipX - dir * s * 0.1f, tipY + s * 0.08f), s * 0.035f, StrokeCap.Round)
+        drawLine(Cinnabar.copy(alpha = 0.55f), Offset(wx0 + dir * s * 0.2f, wy0 - s * 0.05f), Offset(wx0 + dir * s * 0.9f, wy0 - s * 0.5f), s * 0.05f, StrokeCap.Round)
+        drawLine(ink, Offset(wx0, wy0 - s * 0.14f), Offset(wx0 + dir * s * 0.1f, wy0 + s * 0.12f), s * 0.08f, StrokeCap.Round)
+    }
+}
+
+// ══ 敌人单位形状缓存（单位坐标 r=1、圆心在原点）：绘制时 translate+scale，零每帧分配 ══
+private val SlimeDomePath = Path().apply {
+    moveTo(-0.95f, 0.35f)
+    cubicTo(-1.05f, -0.7f, -0.4f, -1.05f, 0f, -1.0f)
+    cubicTo(0.4f, -1.05f, 1.05f, -0.7f, 0.95f, 0.35f)
+    cubicTo(0.6f, 0.55f, -0.6f, 0.55f, -0.95f, 0.35f)
+    close()
+}
+private val BeetleShellPath = Path().apply {
+    moveTo(-0.95f, 0.25f)
+    cubicTo(-1.0f, -0.8f, 1.0f, -0.8f, 0.95f, 0.25f)
+    close()
+}
+private val BatWingPath = Path().apply {
+    moveTo(0.3f, -0.1f)
+    cubicTo(1.1f, -0.7f, 1.5f, 0.1f, 1.2f, 0.45f)
+    cubicTo(0.8f, 0.2f, 0.5f, 0.15f, 0.3f, 0.15f)
+    close()
+}
+private val RatBodyPath = Path().apply {
+    moveTo(-1.1f, 0.15f)
+    quadraticTo(-0.4f, -0.55f, 0.5f, -0.25f)
+    quadraticTo(1.05f, -0.05f, 0.9f, 0.3f)
+    quadraticTo(0f, 0.6f, -1.1f, 0.15f)
+    close()
+}
+private val GoblinEarsPath = Path().apply {
+    moveTo(-0.5f, -0.45f); lineTo(-1.0f, -0.8f); lineTo(-0.45f, -0.7f); close()
+    moveTo(0.5f, -0.45f); lineTo(1.0f, -0.8f); lineTo(0.45f, -0.7f); close()
 }
 
 fun DrawScope.drawInkEnemy(
@@ -80,21 +229,175 @@ fun DrawScope.drawInkEnemy(
         EnemyKind.BOSS_SLIME, EnemyKind.BOSS_ORE -> Color(0xFF44403C)
         EnemyKind.BAT, EnemyKind.WISP -> Color(0xFF57534E)
         EnemyKind.SPIKE_SLIME -> Color(0xFF5C4033)
+        EnemyKind.PINK_SLIME -> Color(0xFF6D5A54)
         else -> Color(0xFF3F3F46)
     }
     val fill = if (flash) PaperLite else base
     val el = kind.element().color
-    // 墨晕
-    drawCircle(fill.copy(alpha = 0.25f), r * 1.35f, Offset(cx, y))
-    drawCircle(fill.copy(alpha = 0.85f), r * 0.95f, Offset(cx, y))
-    drawCircle(InkDark.copy(alpha = 0.7f), r * 0.95f, Offset(cx, y), style = Stroke(r * 0.12f))
-    // 五行一点朱/彩
-    drawCircle(el.copy(alpha = 0.55f), r * 0.28f, Offset(cx + facing * r * 0.15f, y - r * 0.1f))
-    if (elite) drawCircle(Cinnabar, r * 1.08f, Offset(cx, y), style = Stroke(r * 0.1f))
-    if (enraged) drawCircle(Cinnabar.copy(alpha = 0.35f), r * 1.25f, Offset(cx, y), style = Stroke(r * 0.08f))
-    // 眼
-    drawCircle(if (flash) InkDark else PaperLite, r * 0.12f, Offset(cx - r * 0.25f, y - r * 0.15f))
-    drawCircle(if (flash) InkDark else PaperLite, r * 0.12f, Offset(cx + r * 0.22f, y - r * 0.15f))
+    val dir = if (facing >= 0f) 1f else -1f
+    // 单圈墨晕
+    drawCircle(fill.copy(alpha = 0.2f), r * 1.38f, Offset(cx, y))
+
+    // 单位坐标系内绘制（translate 到位置，scale 到半径；描边宽度用单位值）
+    translate(cx, y) {
+        scale(r, r, pivot = Offset.Zero) {
+            when (kind) {
+                EnemyKind.SLIME, EnemyKind.PINK_SLIME -> {
+                    drawPath(
+                        SlimeDomePath,
+                        Brush.verticalGradient(listOf(fill.copy(alpha = 0.95f), fill.copy(alpha = 0.62f)), startY = -1f, endY = 0.5f)
+                    )
+                    drawPath(SlimeDomePath, InkDark.copy(alpha = 0.6f), style = Stroke(0.1f))
+                    drawOval(fill.copy(alpha = 0.75f), Offset(0.43f, 0.3f), Size(0.24f, 0.4f))
+                    if (kind == EnemyKind.PINK_SLIME) {
+                        drawCircle(Color(0xFFF9A8D4).copy(alpha = 0.3f), 0.2f, Offset(-0.25f, -0.35f))
+                        // 桃心触须，和普通史莱姆形成不同剪影。
+                        drawLine(Color(0xFFF9A8D4), Offset(-0.16f, -0.88f), Offset(-0.34f, -1.25f), 0.08f, StrokeCap.Round)
+                        drawLine(Color(0xFFF9A8D4), Offset(0.16f, -0.88f), Offset(0.34f, -1.25f), 0.08f, StrokeCap.Round)
+                        drawCircle(Color(0xFFF472B6), 0.12f, Offset(-0.36f, -1.28f))
+                        drawCircle(Color(0xFFF472B6), 0.12f, Offset(0.36f, -1.28f))
+                    } else {
+                        // 叶芽冠：让最基础敌人也有明确生态特征。
+                        drawLine(Jade, Offset(0f, -0.94f), Offset(0.08f, -1.3f), 0.08f, StrokeCap.Round)
+                        drawOval(Color(0xFF86EFAC), Offset(0.03f, -1.38f), Size(0.34f, 0.18f))
+                    }
+                }
+                EnemyKind.SPIKE_SLIME -> {
+                    drawCircle(fill.copy(alpha = 0.9f), 0.95f, Offset.Zero)
+                    for (i in 0..7) {
+                        val a = i * 0.785f
+                        drawLine(
+                            InkDark.copy(alpha = 0.75f),
+                            Offset(cos(a) * 0.7f, sin(a) * 0.7f),
+                            Offset(cos(a) * 1.35f, sin(a) * 1.35f),
+                            0.12f, StrokeCap.Round
+                        )
+                    }
+                    drawCircle(InkDark.copy(alpha = 0.65f), 0.95f, Offset.Zero, style = Stroke(0.09f))
+                }
+                EnemyKind.BEETLE -> {
+                    drawPath(
+                        BeetleShellPath,
+                        Brush.verticalGradient(listOf(fill.copy(alpha = 0.95f), InkDark.copy(alpha = 0.55f)), startY = -0.8f, endY = 0.25f)
+                    )
+                    drawPath(BeetleShellPath, InkDark.copy(alpha = 0.75f), style = Stroke(0.1f))
+                    drawLine(InkDark.copy(alpha = 0.55f), Offset(0f, -0.85f), Offset(0f, 0.25f), 0.08f)
+                    drawLine(InkDark.copy(alpha = 0.55f), Offset(-0.5f, -0.15f), Offset(0.5f, -0.15f), 0.05f)
+                    // 双角
+                    drawLine(InkDark, Offset(-0.2f, -0.75f), Offset(-0.45f, -1.25f), 0.09f, StrokeCap.Round)
+                    drawLine(InkDark, Offset(0.2f, -0.75f), Offset(0.45f, -1.25f), 0.09f, StrokeCap.Round)
+                    // 六足和钳角，强化“重甲冲锋”轮廓。
+                    for (i in -1..1) {
+                        val ly = -0.28f + i * 0.3f
+                        drawLine(InkDark, Offset(-0.62f, ly), Offset(-1.12f, ly + i * 0.12f), 0.09f, StrokeCap.Round)
+                        drawLine(InkDark, Offset(0.62f, ly), Offset(1.12f, ly + i * 0.12f), 0.09f, StrokeCap.Round)
+                    }
+                    drawArc(el.copy(alpha = 0.6f), 205f, 130f, false, Offset(-0.42f, -0.62f), Size(0.84f, 0.84f), style = Stroke(0.08f))
+                }
+                EnemyKind.BAT -> {
+                    val flap = (bob * 0.25f).coerceIn(-1f, 1f)
+                    drawCircle(InkDark.copy(alpha = 0.9f), 0.5f, Offset.Zero)
+                    // 右翼：绕肩点旋转模拟振翅
+                    rotate(degrees = flap * 22f, pivot = Offset(0.3f, -0.1f)) {
+                        drawPath(BatWingPath, fill.copy(alpha = 0.85f))
+                        drawPath(BatWingPath, InkDark.copy(alpha = 0.6f), style = Stroke(0.07f))
+                    }
+                    scale(-1f, 1f, pivot = Offset.Zero) {
+                        rotate(degrees = flap * 22f, pivot = Offset(0.3f, -0.1f)) {
+                            drawPath(BatWingPath, fill.copy(alpha = 0.85f))
+                            drawPath(BatWingPath, InkDark.copy(alpha = 0.6f), style = Stroke(0.07f))
+                        }
+                    }
+                    drawCircle(el.copy(alpha = 0.5f), 0.16f, Offset(0f, -0.1f))
+                    drawLine(InkDark, Offset(-0.22f, -0.36f), Offset(-0.38f, -0.78f), 0.1f, StrokeCap.Round)
+                    drawLine(InkDark, Offset(0.22f, -0.36f), Offset(0.38f, -0.78f), 0.1f, StrokeCap.Round)
+                    drawLine(PaperLite, Offset(-0.12f, 0.2f), Offset(-0.05f, 0.42f), 0.07f, StrokeCap.Round)
+                    drawLine(PaperLite, Offset(0.12f, 0.2f), Offset(0.05f, 0.42f), 0.07f, StrokeCap.Round)
+                }
+                EnemyKind.SKELETON -> {
+                    drawCircle(if (flash) PaperLite else Color(0xFFD6D3D1), 0.72f, Offset(0f, -0.35f))
+                    drawCircle(InkDark.copy(alpha = 0.8f), 0.72f, Offset(0f, -0.35f), style = Stroke(0.1f))
+                    drawCircle(InkDark, 0.16f, Offset(-0.26f, -0.42f))
+                    drawCircle(InkDark, 0.16f, Offset(0.26f, -0.42f))
+                    drawLine(Color(0xFFD6D3D1).copy(alpha = 0.9f), Offset(0f, 0.1f), Offset(0f, 0.7f), 0.16f, StrokeCap.Round)
+                    for (i in 0..2) {
+                        drawLine(Color(0xFFD6D3D1).copy(alpha = 0.7f), Offset(-0.4f, 0.2f + i * 0.2f), Offset(0.4f, 0.2f + i * 0.2f), 0.06f)
+                    }
+                    // 骨刃和持刀臂，与横扫招式对应。
+                    drawLine(Color(0xFFD6D3D1), Offset(dir * 0.25f, 0.15f), Offset(dir * 0.78f, 0.42f), 0.1f, StrokeCap.Round)
+                    drawLine(Color(0xFFCBD5E1), Offset(dir * 0.7f, 0.42f), Offset(dir * 1.28f, -0.18f), 0.14f, StrokeCap.Round)
+                    drawLine(Color.White.copy(alpha = 0.65f), Offset(dir * 0.76f, 0.34f), Offset(dir * 1.24f, -0.16f), 0.035f, StrokeCap.Round)
+                }
+                EnemyKind.GOBLIN -> {
+                    drawOval(fill.copy(alpha = 0.92f), Offset(-0.6f, -0.3f), Size(1.2f, 1.25f))
+                    drawOval(InkDark.copy(alpha = 0.6f), Offset(-0.6f, -0.3f), Size(1.2f, 1.25f), style = Stroke(0.09f))
+                    drawPath(GoblinEarsPath, fill.copy(alpha = 0.95f))
+                    drawLine(InkDark, Offset(dir * 0.5f, 0f), Offset(dir * 1.1f, -0.5f), 0.12f, StrokeCap.Round)
+                    drawCircle(Color(0xFFD97706).copy(alpha = 0.8f), 0.14f, Offset(dir * 1.1f, -0.5f))
+                    // 背鼓与火罐：轮廓直接提示其鼓舞/投掷职责。
+                    drawCircle(Color(0xFF9A3412), 0.42f, Offset(-dir * 0.52f, 0.36f))
+                    drawCircle(Color(0xFFFDBA74), 0.34f, Offset(-dir * 0.52f, 0.36f), style = Stroke(0.08f))
+                    drawCircle(Color(0xFFFB923C), 0.18f, Offset(dir * 0.68f, 0.22f))
+                }
+                EnemyKind.RAT -> {
+                    drawPath(RatBodyPath, fill.copy(alpha = 0.92f))
+                    drawPath(RatBodyPath, InkDark.copy(alpha = 0.65f), style = Stroke(0.08f))
+                    // 尾（一笔回锋）
+                    val wag = (bob * 0.12f).coerceIn(-0.3f, 0.3f)
+                    drawLine(InkDark.copy(alpha = 0.7f), Offset(-1.05f, 0.2f), Offset(-1.7f, -0.2f + wag), 0.08f, StrokeCap.Round)
+                    drawCircle(fill, 0.22f, Offset(0.35f, -0.5f))
+                    drawCircle(InkDark.copy(alpha = 0.6f), 0.1f, Offset(dir * 0.75f, -0.1f))
+                    drawCircle(fill, 0.2f, Offset(-0.28f, -0.53f))
+                    drawCircle(fill, 0.2f, Offset(0.18f, -0.55f))
+                    drawLine(PaperLite, Offset(dir * 0.73f, 0.02f), Offset(dir * 0.92f, 0.16f), 0.06f, StrokeCap.Round)
+                    for (i in -1..1) drawLine(InkDark.copy(alpha = 0.5f), Offset(dir * 0.55f, 0.02f + i * 0.08f), Offset(dir * 1.15f, -0.02f + i * 0.14f), 0.025f)
+                }
+                EnemyKind.WISP -> {
+                    drawCircle(el.copy(alpha = 0.15f), 1.5f, Offset.Zero)
+                    drawCircle(el.copy(alpha = 0.3f), 0.95f, Offset.Zero)
+                    drawCircle(
+                        Brush.radialGradient(listOf(Color(0xFFFEF9C3), el), center = Offset(0f, -0.1f), radius = 0.7f),
+                        0.5f, Offset.Zero
+                    )
+                    for (i in 0..2) {
+                        drawOval(el.copy(alpha = 0.3f - i * 0.08f), Offset(-0.14f, 0.3f + i * 0.25f), Size(0.28f, 0.42f))
+                    }
+                    // 环绕魂灯碎片，呼应轮射与治疗定位。
+                    for (i in 0..3) {
+                        val a = i * 1.57f + bob * 0.08f
+                        drawCircle(el.copy(alpha = 0.72f), 0.09f, Offset(cos(a) * 0.82f, sin(a) * 0.58f))
+                    }
+                }
+                EnemyKind.BOSS_SLIME, EnemyKind.BOSS_ORE -> {
+                    drawCircle(fill.copy(alpha = 0.92f), 0.95f, Offset.Zero)
+                    drawCircle(el.copy(alpha = 0.2f), 1.15f, Offset.Zero)
+                    drawCircle(InkDark.copy(alpha = 0.55f), 0.95f, Offset.Zero, style = Stroke(0.16f))
+                    drawCircle(InkDark.copy(alpha = 0.8f), 0.95f, Offset.Zero, style = Stroke(0.07f))
+                    if (kind == EnemyKind.BOSS_SLIME) {
+                        for (i in -1..1) {
+                            drawLine(Color(0xFFFBBF24).copy(alpha = 0.9f), Offset(i * 0.3f, -0.8f), Offset(i * 0.4f, -1.3f), 0.14f, StrokeCap.Round)
+                        }
+                    } else {
+                        for (i in -1..1) {
+                            val gemH = if (i == 0) 0.75f else 0.5f
+                            drawLine(el.copy(alpha = 0.85f), Offset(i * 0.4f - 0.1f, -0.7f), Offset(i * 0.4f, -0.7f - gemH), 0.18f, StrokeCap.Round)
+                            drawLine(el.copy(alpha = 0.85f), Offset(i * 0.4f, -0.7f - gemH), Offset(i * 0.4f + 0.1f, -0.7f), 0.18f, StrokeCap.Round)
+                        }
+                    }
+                }
+            }
+            // 通用：眼（无自带眼的种类）
+            if (kind !in listOf(EnemyKind.SKELETON, EnemyKind.BAT, EnemyKind.RAT, EnemyKind.WISP, EnemyKind.GOBLIN)) {
+                val eyeCol = if (flash) InkDark else PaperLite
+                drawCircle(eyeCol, 0.11f, Offset(-0.25f, -0.15f))
+                drawCircle(eyeCol, 0.11f, Offset(0.22f, -0.15f))
+            }
+            // 五行胸章
+            drawCircle(el.copy(alpha = 0.55f), 0.22f, Offset(facing * 0.3f, 0.25f))
+        }
+    }
+    if (elite) drawCircle(Cinnabar, r * 1.12f, Offset(cx, y), style = Stroke(r * 0.1f))
+    if (enraged) drawCircle(Cinnabar.copy(alpha = 0.35f), r * 1.28f, Offset(cx, y), style = Stroke(r * 0.08f))
 }
 
 /**
@@ -167,6 +470,11 @@ fun DrawScope.drawInkProjectile(
         3 -> Color(0xFF4A6741)
         5 -> Color(0xFF5C4033)
         6 -> Color(0xFF44403C)
+        7 -> Color(0xFFA78BFA) // 蝙蝠声波
+        8 -> Color(0xFFCBD5E1) // 棘刺
+        10 -> Color(0xFFFB923C) // 哥布林火罐
+        11 -> Color(0xFFF472B6) // 桃心散弹
+        12 -> Color(0xFF7C3AED) // 幽火轮射
         else -> InkMid
     }
     // 主笔：前粗后细感用两笔
