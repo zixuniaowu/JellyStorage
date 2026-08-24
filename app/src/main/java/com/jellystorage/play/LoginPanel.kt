@@ -79,13 +79,13 @@ fun LoginPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(t("免疫战线"), color = Color(0xFF2C1810), fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text(t("人体防卫战 · 本地账号"), color = Color(0xFF5C4033), fontSize = 12.sp)
+            Text(t("人体防卫战 · 本机档案"), color = Color(0xFF5C4033), fontSize = 12.sp)
             Button(
                 onClick = onGuestEnter,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4D7C0F)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(t("一键生成账号并进入"), color = Color(0xFFF5EBD4), fontSize = 16.sp)
+                Text(t("一键生成档案并进入"), color = Color(0xFFF5EBD4), fontSize = 16.sp)
             }
             if (guestHint.isNotEmpty()) {
                 Text(t(guestHint), color = Color(0xFF3F6212), fontSize = 12.sp)
@@ -111,7 +111,7 @@ fun LoginPanel(
             OutlinedTextField(
                 value = password,
                 onValueChange = onPassChange,
-                label = { Text(t("密码")) },
+                label = { Text(t("口令")) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -126,7 +126,7 @@ fun LoginPanel(
                     onClick = onAutoFill,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C4033)),
                     modifier = Modifier.weight(1f)
-                ) { Text(t("填入随机账号"), color = Color(0xFFF5EBD4), fontSize = 13.sp) }
+                ) { Text(t("填入随机档案"), color = Color(0xFFF5EBD4), fontSize = 13.sp) }
                 Button(
                     onClick = onSubmit,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB45309)),
@@ -138,15 +138,15 @@ fun LoginPanel(
             TextButton(onClick = onToggleMode) {
                 Text(
                     text = t(if (isRegister) {
-                        if (hasAccount) "已有账号？去登录" else "改为登录模式"
+                        if (hasAccount) "已有档案？去登录" else "改为登录模式"
                     } else {
-                        "没有账号？去注册"
+                        "没有档案？去注册"
                     }),
                     color = Color(0xFF0F766E),
                     fontSize = 12.sp
                 )
             }
-            Text(t("账号仅本机保存 · 广告支持免费运营"), color = Color(0xFF78716C), fontSize = 10.sp)
+            Text(t("档案仅本机保存 · 广告支持免费运营"), color = Color(0xFF78716C), fontSize = 10.sp)
         }
     }
 }

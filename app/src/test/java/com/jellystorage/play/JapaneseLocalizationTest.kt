@@ -34,6 +34,18 @@ class JapaneseLocalizationTest {
             "変異第3世代／上限7・免疫記憶「凝固バリア」（左右をタップ）",
             GameI18n.tr("变异第3代/7代 · 免疫记忆「凝血屏障」（左右点选）")
         )
+        // 本机档案/口令改名后必须仍有日文映射（档/案/口/令不在防泄漏字符表内，显式锁死）
+        assertEquals(
+            "作成しました：ユーザー guest・パスワード pass123（スクリーンショットで保存してください）",
+            GameI18n.tr("已生成：用户 guest  口令 pass123（请截图保存）")
+        )
+        assertEquals("アカウント guest・クリア2・遠征3・撃破40", GameI18n.tr("档案 guest  通关2 出征3 击杀40"))
+        assertEquals("パスワード pass123（端末内保存・スクリーンショット可）", GameI18n.tr("口令 pass123（本地，可截图）"))
+        assertEquals("パスワード", GameI18n.tr("口令"))
+        assertEquals("登録済みですか？ ログイン", GameI18n.tr("已有档案？去登录"))
+        assertEquals("アカウントは端末内保存・広告収益で無料運営", GameI18n.tr("档案仅本机保存 · 广告支持免费运营"))
+        assertEquals("パスワードは4文字以上必要です", GameI18n.tr("口令至少4位"))
+        assertEquals("パスワードが正しくありません", GameI18n.tr("口令不正确"))
     }
 
     @Test
@@ -79,9 +91,9 @@ class JapaneseLocalizationTest {
             StoryBook.journalLine("果冻草原", "史莱姆窝", true),
             StoryBook.journalLine("哭泣矿道", "矿脉魔", false),
             "第 3 波", "波2/5", "墨阶3/5", "陷阱-45", "荐火克金",
-            "已生成：用户 guest  密码 pass123（请截图保存）",
-            "账号 guest  通关2 出征3 击杀40",
-            "密码 pass123（本地，可截图）",
+            "已生成：用户 guest  口令 pass123（请截图保存）",
+            "档案 guest  通关2 出征3 击杀40",
+            "口令 pass123（本地，可截图）",
             "出征 3  通关 2  最高章 4",
             "累计金 4143  击杀 396",
             "音效  开",

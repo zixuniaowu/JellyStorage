@@ -97,10 +97,10 @@ class ProgressStore(context: Context) {
         val u = username.trim()
         val p = password
         if (u.length < 2) return "用户名至少2个字"
-        if (p.length < 4) return "密码至少4位"
+        if (p.length < 4) return "口令至少4位"
         // 本机单账号：禁止静默覆盖已有账号（避免误点「一键」丢档）
         if (hasLocalAccount() && localUsername() != u) {
-            return "本机已有账号「${localUsername()}」，请登录；或设置里退出后清除"
+            return "本机已有档案「${localUsername()}」，请登录；或设置里退出后清除"
         }
         sp.edit()
             .putString(K_USER, u)
@@ -140,7 +140,7 @@ class ProgressStore(context: Context) {
         if (!hasLocalAccount()) return "请先注册或一键进入"
         val u = username.trim()
         if (u != localUsername()) return "用户名不正确"
-        if (password != localPassword()) return "密码不正确"
+        if (password != localPassword()) return "口令不正确"
         sp.edit().putBoolean(K_SESSION, true).apply()
         return null
     }

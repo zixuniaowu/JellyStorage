@@ -948,7 +948,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 val (u, p) = progress.createGuestAndLogin()
                 loginUser = u
                 loginPass = p
-                guestHint = "已生成：用户 $u  密码 $p（请截图保存）"
+                guestHint = "已生成：用户 $u  口令 $p（请截图保存）"
                 loginMsg = ""
                 screen = afterLoginScreen(progress)
             },
@@ -956,8 +956,8 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 loginUser = GuestIds.username()
                 loginPass = GuestIds.password()
                 loginIsRegister = true
-                loginMsg = "已填入随机账号，点「注册进入」"
-                guestHint = "用户 ${loginUser} / 密码 ${loginPass}"
+                loginMsg = "已填入随机档案，点「注册进入」"
+                guestHint = "用户 ${loginUser} / 口令 ${loginPass}"
             },
             onLanguageToggle = toggleLanguage
         )
@@ -2290,7 +2290,7 @@ private fun DrawScope.drawTitle(
     title(tm, dailyInkTitle(), w * 0.23f, h * 0.835f, Color(0xFFFECACA), 8.sp)
     title(
         tm,
-        "账号 ${progress.localUsername()}  通关${progress.runsWon} 出征${progress.runsStarted} 击杀${progress.lifetimeKills}" +
+        "档案 ${progress.localUsername()}  通关${progress.runsWon} 出征${progress.runsStarted} 击杀${progress.lifetimeKills}" +
             if (hasSave) " ·有存档" else "",
         w * 0.5f, h * 0.92f, Color(0xFF5C4033), 10.sp
     )
@@ -2629,11 +2629,11 @@ private fun DrawScope.drawSettings(
     val ch = progress.activeCharacter()
     title(
         tm,
-        "账号 ${progress.localUsername()}" + if (progress.isGuestAccount()) "（游客）" else "",
+        "档案 ${progress.localUsername()}" + if (progress.isGuestAccount()) "（游客）" else "",
         w * 0.5f, h * 0.255f, Color(0xFF5C4033), 12.sp
     )
     if (progress.isGuestAccount()) {
-        title(tm, "密码 ${progress.localPassword()}（本地，可截图）", w * 0.5f, h * 0.30f, Color(0xFF3F6212), 11.sp)
+        title(tm, "口令 ${progress.localPassword()}（本地，可截图）", w * 0.5f, h * 0.30f, Color(0xFF3F6212), 11.sp)
     }
     title(
         tm,
