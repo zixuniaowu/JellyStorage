@@ -27,6 +27,9 @@ class RunMeta {
     var weaponLevel = 0 // forge level (small bonus stacked with gear)
     var armorLevel = 0
     var potions = 1
+
+    /** 本次远征已喝掉的药水数（挑战「点药不沾」判定用），随远征存档 */
+    var potionsUsedThisRun = 0
     var level = 1
     var xp = 0
     var xpToLevel = xpRequirementForLevel(1)
@@ -592,6 +595,7 @@ class RunMeta {
         weaponLevel = 0
         armorLevel = 0
         potions = 1 + (inkRank.coerceAtMost(9) / 3)
+        potionsUsedThisRun = 0
         gold = 32 + inkRank.coerceAtMost(10) * 4 + immuneMemory().startGold +
             if (InkAffix.THICK_GOLD in inkAffixes()) 8 else 0
         goldEarnedThisRun = 0

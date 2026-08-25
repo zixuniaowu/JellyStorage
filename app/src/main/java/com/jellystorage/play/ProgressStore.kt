@@ -293,6 +293,7 @@ class ProgressStore(context: Context) {
             .putInt(rk(K_RUN_WPN), meta.weaponLevel)
             .putInt(rk(K_RUN_ARM), meta.armorLevel)
             .putInt(rk(K_RUN_POT), meta.potions)
+            .putInt(rk(K_RUN_POT_USED), meta.potionsUsedThisRun)
             .putInt(rk(K_RUN_LV), meta.level)
             .putInt(rk(K_RUN_XP), meta.xp)
             .putInt(rk(K_RUN_XP_NEED), meta.xpToLevel)
@@ -368,6 +369,31 @@ class ProgressStore(context: Context) {
     fun isRingKnown(id: String) = id in discoveredRings() || RingCatalog.byId(id)?.cost == 0
     fun isBootsKnown(id: String) = id in discoveredBoots() || BootsCatalog.byId(id)?.cost == 0
 
+    // ---- 图鉴挑战（账号级生涯记录，与角色/远征无关） ----
+
+    fun completedChallenges(): Set<String> =
+        (sp.getString(K_CHALLENGES, "") ?: "").split(",").filter { it.isNotBlank() }.toSet()
+
+    /** 返回 true 表示本次首次达成 */
+    fun completeChallenge(id: String): Boolean {
+        val set = completedChallenges().toMutableSet()
+        if (!set.add(id)) return false
+        sp.edit().putString(K_CHALLENGES, set.joinToString(",")).apply()
+        return true
+    }
+
+    /** 已用 Boss 击杀覆盖的五行（存枚举名） */
+    fun bossElementsKilled(): Set<String> =
+        (sp.getString(K_BOSS_ELEMENTS, "") ?: "").split(",").filter { it.isNotBlank() }.toSet()
+
+    /** 记录一次 Boss 五行击杀；返回 true 表示该五行为首次覆盖 */
+    fun recordBossElementKill(element: WuXing): Boolean {
+        val set = bossElementsKilled().toMutableSet()
+        if (!set.add(element.name)) return false
+        sp.edit().putString(K_BOSS_ELEMENTS, set.joinToString(",")).apply()
+        return true
+    }
+
     fun collectionProgress(): Pair<Int, Int> {
         val total = WeaponCatalog.all.size + ArmorCatalog.all.size + RingCatalog.all.size + BootsCatalog.all.size
         val knownW = WeaponCatalog.all.count { isWeaponKnown(it.id) }
@@ -405,6 +431,7 @@ class ProgressStore(context: Context) {
         meta.weaponLevel = sp.getInt(rk(K_RUN_WPN), 0)
         meta.armorLevel = sp.getInt(rk(K_RUN_ARM), 0)
         meta.potions = sp.getInt(rk(K_RUN_POT), 1)
+        meta.potionsUsedThisRun = sp.getInt(rk(K_RUN_POT_USED), 0)
         meta.level = sp.getInt(rk(K_RUN_LV), 1)
         meta.xp = sp.getInt(rk(K_RUN_XP), 0)
         // 经验曲线由版本规则决定，不沿用旧存档里过小的门槛（曾导致一战满技能）。
@@ -530,6 +557,7 @@ class ProgressStore(context: Context) {
         private const val K_RUN_WPN = "run_wpn"
         private const val K_RUN_ARM = "run_arm"
         private const val K_RUN_POT = "run_pot"
+    private const val K_RUN_POT_USED = "run_pot_used"
         private const val K_RUN_LV = "run_lv"
         private const val K_RUN_XP = "run_xp"
         private const val K_RUN_XP_NEED = "run_xp_need"
@@ -562,9 +590,11 @@ class ProgressStore(context: Context) {
         private const val K_GUEST = "local_guest"
         private const val K_CHARS = "chars_v1"
         private const val K_ACTIVE_CHAR = "active_char"
-        private const val K_INK_UNLOCK = "ink_unlock"
-        private const val K_INK_PREF = "ink_pref"
-        private const val K_IMMUNE_MEMORY = "immune_memory"
+    private const val K_INK_UNLOCK = "ink_unlock"
+    private const val K_INK_PREF = "ink_pref"
+    private const val K_IMMUNE_MEMORY = "immune_memory"
+    private const val K_CHALLENGES = "challenges_done"
+    private const val K_BOSS_ELEMENTS = "boss_elements"
         private const val K_RUN_SEED = "run_seed"
         private const val K_RUN_INK = "run_ink"
         private const val K_RUN_MEMORY = "run_memory"

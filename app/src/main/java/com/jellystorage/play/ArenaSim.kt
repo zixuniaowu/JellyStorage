@@ -356,7 +356,7 @@ class ArenaSim(
         private set
     var roomKills: Int = 0
         private set
-    private var fightTimer: Float = 0f
+    var fightTimer: Float = 0f
     /** set when room clears: S / A / B / C */
     var clearGrade: String = ""
         private set

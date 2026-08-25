@@ -649,6 +649,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 inCircle(p, controls.potionX, controls.potionY, u * 0.07f * ARENA_HIT_SLOP) -> {
                     if (sim != null && meta.potions > 0 && sim.tryUsePotion()) {
                         meta.potions--
+                        meta.potionsUsedThisRun++
                         meta.curHp = sim.player.hp
                         meta.toast = "用药 +${(sim.player.maxHp * 0.4f).toInt()} HP  剩${meta.potions}瓶"
                         meta.toastT = 1.5f
@@ -1119,12 +1120,16 @@ private fun settleVictory(
     }
     val leveled = meta.addXp(sim.xpEarned)
     val grade = sim.clearGrade.ifEmpty { "B" }
+    val newChallenges = settleChallenges(sim, meta, progress, node?.type == NodeType.BOSS, grade)
     meta.toast = buildString {
         append("清场 $grade +${sim.goldEarned}金 +${sim.xpEarned}经验")
         sim.roomTrial?.let { trial ->
             append(" · ${trial.title}${if (sim.trialSucceeded) "✓" else "未达"}")
         }
         if (lootBits.isNotEmpty()) append(" · 掉落 ${lootBits.joinToString()}")
+        if (newChallenges.isNotEmpty()) {
+            append(" · 挑战达成 ${newChallenges.joinToString("、") { it.title }} +${newChallenges.sumOf { it.rewardGold }}金")
+        }
     }
     meta.toastT = 2.8f
     meta.arenaBanner = "评价 $grade！"
@@ -1148,6 +1153,40 @@ private fun settleVictory(
         return Screen.LEVEL_UP
     }
     return Screen.MAP
+}
+
+/** 结算图鉴挑战：返回本次新达成列表，奖励立即进入当局金币与生涯统计口径 */
+private fun settleChallenges(
+    sim: ArenaSim,
+    meta: RunMeta,
+    progress: ProgressStore,
+    bossBattle: Boolean,
+    grade: String
+): List<CodexChallenge> {
+    val outcome = BattleOutcome(
+        maxCombo = sim.maxCombo,
+        fightSeconds = sim.fightTimer,
+        damageTaken = sim.playerDamageTaken,
+        grade = grade,
+        bossBattle = bossBattle,
+        potionsUsed = meta.potionsUsedThisRun
+    )
+    val newly = mutableListOf<CodexChallenge>()
+    for (c in battleChallengesReached(outcome, progress.completedChallenges())) {
+        if (progress.completeChallenge(c.id)) newly.add(c)
+    }
+    if (bossBattle &&
+        progress.recordBossElementKill(meta.playerElement()) &&
+        progress.bossElementsKilled().size >= WuXing.entries.size &&
+        progress.completeChallenge(CodexChallenge.BOSS_ALL_ELEMENTS.id)
+    ) {
+        newly.add(CodexChallenge.BOSS_ALL_ELEMENTS)
+    }
+    newly.forEach { c ->
+        meta.gold += c.rewardGold
+        meta.goldEarnedThisRun += c.rewardGold
+    }
+    return newly
 }
 
 private fun handleUiTap(
@@ -1315,9 +1354,9 @@ private fun handleUiTap(
             setScreen(Screen.TITLE)
         }
         Screen.CODEX -> {
-            // 5 tabs: 武 甲 戒 鞋 套 —— 装备图鉴只放装备；职业技能在操作说明里讲
+            // 6 tabs: 武 甲 戒 鞋 套 挑战 —— 装备图鉴只放装备；挑战为生涯记录
             val tabW = w * 0.125f
-            for (i in 0..4) {
+            for (i in 0..5) {
                 val x0 = w * 0.02f + i * (tabW + w * 0.01f)
                 if (pos.y in h * 0.105f..h * 0.17f && pos.x in x0..(x0 + tabW)) {
                     meta.codexTab = i
@@ -1386,6 +1425,15 @@ private fun handleUiTap(
                         val y0 = h * 0.20f + i * h * 0.12f
                         if (pos.y in y0..(y0 + h * 0.11f) && pos.x in w * 0.02f..w * 0.42f) {
                             meta.codexSelectedId = set.id
+                            return
+                        }
+                    }
+                }
+                5 -> {
+                    CodexChallenge.entries.forEachIndexed { i, c ->
+                        val y0 = h * 0.20f + i * h * 0.085f
+                        if (pos.y in y0..(y0 + h * 0.08f) && pos.x in w * 0.02f..w * 0.42f) {
+                            meta.codexSelectedId = c.id
                             return
                         }
                     }
@@ -1531,6 +1579,7 @@ private fun handleUiTap(
                     }
                     pos.x in w * 0.78f..w * 0.87f && meta.potions > 0 -> {
                         meta.potions--
+                        meta.potionsUsedThisRun++
                         meta.ensureVitals()
                         meta.curHp = (meta.curHp + meta.maxHp() * 0.4f).coerceAtMost(meta.maxHp())
                         meta.toast = "用药回复 40% 生命"
@@ -2401,7 +2450,7 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
     codexHeaderLine("图鉴", Color(0xFFF5EBD4), 16.sp)
     codexHeaderLine("亮色=已获得 · 灰暗=未获得  ·  收集 $known/$total", Color(0xFF5C4033), 10.sp, 0f)
 
-    val tabs = listOf("武器", "防具", "戒指", "鞋子", "套装")
+    val tabs = listOf("武器", "防具", "戒指", "鞋子", "套装", "挑战")
     val tabW = w * 0.125f
     tabs.forEachIndexed { i, t ->
         val x0 = w * 0.02f + i * (tabW + w * 0.01f)
@@ -2409,7 +2458,7 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
         drawRoundRect(if (on) Color(0xFFD97706) else Color(0xFF1E293B), Offset(x0, h * 0.105f), Size(tabW, h * 0.06f), CornerRadius(8f))
         title(tm, t, x0 + tabW * 0.5f, h * 0.118f, Color.White, 11.sp)
     }
-    // 职业筛选只出现在有职业专属内容的 tab（武器/防具/套装）；戒指鞋子全通用
+    // 职业筛选只出现在有职业专属内容的 tab（武器/防具/套装）；戒指鞋子全通用；挑战为账号级生涯
     if (meta.codexTab in listOf(0, 1, 4)) {
         HeroClass.entries.forEachIndexed { i, hc ->
             val x0 = w * 0.70f + i * w * 0.09f
@@ -2417,6 +2466,9 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
             drawRoundRect(if (on) hc.color.copy(alpha = 0.55f) else Color(0xFF1E293B), Offset(x0, h * 0.105f), Size(w * 0.085f, h * 0.06f), CornerRadius(8f))
             title(tm, GameI18n.tr(hc.displayName), x0 + w * 0.042f, h * 0.118f, if (on) Color.White else Color(0xFF94A3B8), 11.sp)
         }
+    } else if (meta.codexTab == 5) {
+        val doneN = progress.completedChallenges().size
+        title(tm, "已达成 $doneN/${CodexChallenge.entries.size}", w * 0.745f, h * 0.118f, Color(0xFFFBBF24), 10.sp)
     } else {
         title(tm, GameI18n.tr("全部职业通用"), w * 0.745f, h * 0.118f, Color(0xFF94A3B8), 10.sp)
     }
@@ -2601,6 +2653,37 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
                 title(tm, set.piecesLine().take(40), previewCx, h * 0.74f, Color(0xFF94A3B8), 10.sp)
                 title(tm, "特效 ${set.proc.title}", previewCx, h * 0.79f, Color(0xFFFBBF24), 12.sp)
             }
+        }
+        5 -> {
+            val done = progress.completedChallenges()
+            val list = CodexChallenge.entries
+            val selId = meta.codexSelectedId.ifEmpty { list.firstOrNull()?.id.orEmpty() }
+            list.forEachIndexed { i, c ->
+                val y0 = h * 0.20f + i * h * 0.085f
+                val ok = c.id in done
+                val on = c.id == selId
+                drawRoundRect(listBg(ok, on), Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f))
+                drawRoundRect(
+                    if (on) Color(0xFFFBBF24) else if (ok) Color(0xFF4ADE80) else Color(0xFF475569),
+                    Offset(w * 0.03f, y0), Size(w * 0.38f, h * 0.078f), CornerRadius(10f),
+                    style = Stroke(if (on) 3f else 1.2f)
+                )
+                title(tm, if (ok) "✓ ${c.title}" else c.title, w * 0.22f, y0 + h * 0.008f, if (ok) Color(0xFF86EFAC) else Color.White, 11.sp)
+                title(tm, if (ok) "已达成" else c.desc.take(13), w * 0.22f, y0 + h * 0.042f, if (ok) Color(0xFF86EFAC) else Color(0xFF94A3B8), 9.sp)
+            }
+            val c = CodexChallenge.byId(selId) ?: list.first()
+            val ok = c.id in done
+            title(tm, if (ok) "✓ ${c.title}" else c.title, previewCx, h * 0.28f, if (ok) Color(0xFF86EFAC) else Color.White, 18.sp)
+            title(tm, c.desc, previewCx, h * 0.36f, Color(0xFFE2E8F0), 12.sp)
+            title(tm, "奖励 +${c.rewardGold}金（当局立即生效）", previewCx, h * 0.43f, Color(0xFFFBBF24), 12.sp)
+            if (c == CodexChallenge.BOSS_ALL_ELEMENTS) {
+                val killed = progress.bossElementsKilled()
+                    .mapNotNull { runCatching { WuXing.valueOf(it) }.getOrNull() }
+                    .toSet()
+                title(tm, "进度 ${bossElementProgressLine(killed)}", previewCx, h * 0.50f, Color(0xFF38BDF8), 12.sp)
+            }
+            title(tm, "挑战奖励进入当局金币，死亡即失效——趁热用掉", previewCx, h * 0.62f, Color(0xFF94A3B8), 10.sp)
+            title(tm, "生涯挑战 · 达成后自动记录", previewCx, h * 0.68f, Color(0xFF5C4033), 10.sp)
         }
     }
     drawRoundRect(Color(0xFF334155), Offset(w * 0.3f, h * 0.91f), Size(w * 0.4f, h * 0.07f), CornerRadius(12f))
