@@ -51,7 +51,7 @@ Windowsでは`./gradlew`を`gradlew.bat`に置き換えられます。Debugビ�
 Google Play向けのビルドでは、`release.properties.example`を`release.properties`へコピーし、署名、AdMob、プライバシーポリシーの設定を入力してから次を実行します。
 
 ```bash
-./gradlew -PplayStoreRelease=true bundleRelease
+./gradlew --no-configuration-cache -PplayStoreRelease=true bundleRelease
 ```
 
 `release.properties`、キーストア、本番用広告情報はコミットしないでください。

@@ -120,6 +120,9 @@ dependencies {
 tasks.register("verifyPlayReleaseConfig") {
     group = "verification"
     description = "Checks signing, AdMob and privacy configuration before a Play Store bundle is built."
+    notCompatibleWithConfigurationCache(
+        "Release verification reads credentials and validates the configured keystore at execution time."
+    )
     doLast {
         val required = listOf(
             "ADMOB_APP_ID",

@@ -82,7 +82,7 @@
 
 ```powershell
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-.\gradlew.bat clean testDebugUnitTest lintRelease bundleRelease -PplayStoreRelease=true
+.\gradlew.bat --no-configuration-cache clean testDebugUnitTest lintRelease bundleRelease -PplayStoreRelease=true
 ```
 
 只有带 `-PplayStoreRelease=true` 的命令才会强制校验正式广告、隐私政策、keystore 和签名密码。
