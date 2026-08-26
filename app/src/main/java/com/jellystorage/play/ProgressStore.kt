@@ -394,6 +394,37 @@ class ProgressStore(context: Context) {
         return true
     }
 
+    // ---- 职业试炼（按职业累计，解锁备用皮肤） ----
+
+    fun trialStats(hero: HeroClass): TrialStats =
+        TrialStats.decode(sp.getString("trials_${hero.name}", null))
+
+    /** 结算一场试炼累计；返回 (新统计, 本次是否首次皮肤解锁) */
+    fun recordTrialBattle(hero: HeroClass, r: TrialBattleReport): Pair<TrialStats, Boolean> {
+        val old = trialStats(hero)
+        val wasUnlocked = HeroTrials.allDone(hero, old)
+        val new = HeroTrials.accumulate(old, r)
+        sp.edit().putString("trials_${hero.name}", new.encode()).apply()
+        val nowUnlocked = HeroTrials.allDone(hero, new)
+        return new to (nowUnlocked && !wasUnlocked)
+    }
+
+    fun isAltSkinUnlocked(hero: HeroClass): Boolean =
+        HeroTrials.allDone(hero, trialStats(hero))
+
+    /** 职业当前皮肤选择（未解锁备用皮时始终为默认皮） */
+    fun classSkin(hero: HeroClass): CharacterSkin {
+        val alt = HeroTrials.rewardSkinFor(hero)
+        val sel = sp.getString("skin_sel_${hero.name}", null)
+        return if (sel == alt.id && isAltSkinUnlocked(hero)) alt else SkinCatalog.defaultFor(hero)
+    }
+
+    fun setClassSkin(hero: HeroClass, skinId: String) {
+        val valid = skinId == SkinCatalog.defaultFor(hero).id ||
+            (skinId == HeroTrials.rewardSkinFor(hero).id && isAltSkinUnlocked(hero))
+        if (valid) sp.edit().putString("skin_sel_${hero.name}", skinId).apply()
+    }
+
     fun collectionProgress(): Pair<Int, Int> {
         val total = WeaponCatalog.all.size + ArmorCatalog.all.size + RingCatalog.all.size + BootsCatalog.all.size
         val knownW = WeaponCatalog.all.count { isWeaponKnown(it.id) }

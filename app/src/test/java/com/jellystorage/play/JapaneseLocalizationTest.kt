@@ -159,7 +159,7 @@ class JapaneseLocalizationTest {
             "PlayScreen.kt", "LoginPanel.kt", "ArenaSim.kt", "RunMeta.kt", "InkAffix.kt",
             "ProgressStore.kt", "ClassDefs.kt", "StoryData.kt", "LootSystem.kt", "GearSets.kt",
             "GearAccessories.kt", "CoreInk.kt", "BossMechanics.kt", "RoomTrial.kt", "ArenaEnvironment.kt",
-            "ChallengeDefs.kt"
+            "ChallengeDefs.kt", "HeroTrials.kt"
         )
         val literal = Regex("\\\"([^\\\"\\r\\n]*(?:\\\\.[^\\\"\\r\\n]*)*)\\\"")
         val forbidden = "这还进关战级伤术书买卖门为击药过开选备录设验钱边轻续觉线敌护冻烧远归风云龙马兽鸟们个让从该仅则处发后东块条叶时气长动头师灵压锁图层净强满稳临场终势义险铁矿饮鸣纹习广荐"

@@ -79,7 +79,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 enum class Screen {
-    LOGIN, CHAR_SELECT, CREATE_CHAR, TITLE, HOW_TO, SETTINGS, CLASS_SELECT, STORY, MAP, ARENA, SHOP, GEAR, CODEX, EVENT, LEVEL_UP, CORE_INK, STAGE_CLEAR, RESULT
+    LOGIN, CHAR_SELECT, CREATE_CHAR, TITLE, HOW_TO, SETTINGS, CLASS_SELECT, STORY, MAP, ARENA, SHOP, GEAR, CODEX, EVENT, LEVEL_UP, CORE_INK, STAGE_CLEAR, RESULT, TRIALS
 }
 
 /**
@@ -886,6 +886,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             Screen.SHOP -> drawShop(meta, tm, w, h)
             Screen.GEAR -> drawGear(meta, tm, w, h, gearScroll)
             Screen.CODEX -> drawCodex(meta, progress, tm, w, h)
+            Screen.TRIALS -> drawTrials(meta, progress, tm, w, h)
             Screen.LEVEL_UP -> drawLevelUp(meta, tm, w, h)
             Screen.CORE_INK -> drawCoreInkChoice(meta, tm, w, h)
             Screen.RESULT -> drawResult(meta, tm, w, h, progress)
@@ -985,6 +986,8 @@ private fun startRunWithActiveCharacter(
     meta.immuneMemoryId = progress.preferredImmuneMemoryId
     meta.resetRun(ch.hero, rank, forcedSeed = seed)
     meta.characterName = ch.name
+    // 开局应用职业当前皮肤（试炼解锁后可在角色页更换）
+    meta.skinId = progress.classSkin(ch.hero).id
     progress.recordRunStart()
     progress.saveActiveRun(meta)
     val storyCh = StoryBook.chapters[0]
@@ -1121,6 +1124,18 @@ private fun settleVictory(
     val leveled = meta.addXp(sim.xpEarned)
     val grade = sim.clearGrade.ifEmpty { "B" }
     val newChallenges = settleChallenges(sim, meta, progress, node?.type == NodeType.BOSS, grade)
+    // 职业试炼累计：统计本场合账数据；皮肤首次解锁时提示
+    val (_, skinJustUnlocked) = progress.recordTrialBattle(
+        meta.hero,
+        TrialBattleReport(
+            kills = sim.roomKills,
+            maxCombo = sim.maxCombo,
+            grade = grade,
+            bossKilled = node?.type == NodeType.BOSS,
+            skillCasts = sim.nonBasicSkillCasts,
+            flawless = sim.playerDamageTaken <= 0f
+        )
+    )
     meta.toast = buildString {
         append("清场 $grade +${sim.goldEarned}金 +${sim.xpEarned}经验")
         sim.roomTrial?.let { trial ->
@@ -1129,6 +1144,9 @@ private fun settleVictory(
         if (lootBits.isNotEmpty()) append(" · 掉落 ${lootBits.joinToString()}")
         if (newChallenges.isNotEmpty()) {
             append(" · 挑战达成 ${newChallenges.joinToString("、") { it.title }} +${newChallenges.sumOf { it.rewardGold }}金")
+        }
+        if (skinJustUnlocked) {
+            append(" · 职业试炼完成！解锁皮肤「${GameI18n.tr(HeroTrials.rewardSkinFor(meta.hero).displayName)}」")
         }
     }
     meta.toastT = 2.8f
@@ -1300,7 +1318,7 @@ private fun handleUiTap(
                     return
                 }
             }
-            if (pos.y in h * 0.80f..h * 0.90f && pos.x in w * 0.15f..w * 0.48f) {
+            if (pos.y in h * 0.80f..h * 0.90f && pos.x in w * 0.06f..w * 0.33f) {
                 if (chars.size < 6) {
                     setCreateName(GameCharacter.autoName(chars.size))
                     setCreateHeroIdx(0)
@@ -1310,7 +1328,10 @@ private fun handleUiTap(
                     meta.toastT = 1.4f
                 }
             }
-            if (pos.y in h * 0.80f..h * 0.90f && pos.x in w * 0.52f..w * 0.85f) {
+            if (pos.y in h * 0.80f..h * 0.90f && pos.x in w * 0.365f..w * 0.635f) {
+                setScreen(Screen.TRIALS)
+            }
+            if (pos.y in h * 0.80f..h * 0.90f && pos.x in w * 0.67f..w * 0.94f) {
                 if (progress.activeCharacter() != null) setScreen(Screen.TITLE)
             }
         }
@@ -1442,6 +1463,30 @@ private fun handleUiTap(
             if (pos.y in h * 0.90f..h * 0.99f) setScreen(Screen.TITLE)
         }
         Screen.LOGIN -> Unit
+        Screen.TRIALS -> {
+            HeroClass.entries.forEachIndexed { ci, hero ->
+                val x0 = w * 0.05f + ci * w * 0.32f
+                val colW = w * 0.28f
+                if (pos.y in h * 0.66f..h * 0.73f) {
+                    if (pos.x in (x0 + w * 0.01f)..(x0 + w * 0.01f + colW * 0.46f)) {
+                        progress.setClassSkin(hero, SkinCatalog.defaultFor(hero).id)
+                        return
+                    }
+                    if (pos.x in (x0 + colW * 0.51f)..(x0 + colW * 0.51f + colW * 0.46f)) {
+                        if (progress.isAltSkinUnlocked(hero)) {
+                            progress.setClassSkin(hero, HeroTrials.rewardSkinFor(hero).id)
+                        } else {
+                            meta.toast = "完成该职业全部试炼后解锁"
+                            meta.toastT = 1.6f
+                        }
+                        return
+                    }
+                }
+            }
+            if (pos.y in h * 0.875f..h * 0.96f && pos.x in w * 0.35f..w * 0.65f) {
+                setScreen(Screen.CHAR_SELECT)
+            }
+        }
         Screen.SETTINGS -> {
             if (pos.y in h * 0.02f..h * 0.13f && pos.x in w * 0.80f..w * 0.98f) {
                 onLanguageToggle()
@@ -2367,16 +2412,77 @@ private fun DrawScope.drawCharSelect(
         val y0 = h * 0.16f + i * h * 0.10f
         val on = c.id == progress.activeCharacterId()
         drawParchmentPanel(w * 0.08f, y0, w * 0.64f, h * 0.09f, strokeCol = if (on) Color(0xFFB91C1C) else Color(0xAA5C4033))
-        drawCuteHero(w * 0.14f, y0 + h * 0.045f, h * 0.028f, 1f, SkinCatalog.defaultFor(c.hero), bob = sin(pulse + i) * 2f)
+        drawCuteHero(w * 0.14f, y0 + h * 0.045f, h * 0.028f, 1f, progress.classSkin(c.hero), bob = sin(pulse + i) * 2f)
         title(tm, c.name, w * 0.32f, y0 + h * 0.012f, Color(0xFF2C1810), 14.sp)
         title(tm, c.summaryLine(), w * 0.32f, y0 + h * 0.048f, Color(0xFF5C4033), 10.sp)
         drawInkButton(w * 0.74f, y0 + h * 0.01f, w * 0.16f, h * 0.07f, Color(0xFFB91C1C), 10f)
         title(tm, "删除", w * 0.82f, y0 + h * 0.028f, Color(0xFFFECACA), 12.sp)
     }
-    drawInkButton(w * 0.15f, h * 0.80f, w * 0.32f, h * 0.09f, Color(0xFF4D7C0F))
-    title(tm, "创建新角色", w * 0.31f, h * 0.825f, Color(0xFFF5EBD4), 15.sp)
-    drawInkButton(w * 0.52f, h * 0.80f, w * 0.32f, h * 0.09f, Color(0xFF78716C))
-    title(tm, "进入标题", w * 0.68f, h * 0.825f, Color(0xFFF5EBD4), 15.sp)
+    drawInkButton(w * 0.06f, h * 0.80f, w * 0.27f, h * 0.09f, Color(0xFF4D7C0F))
+    title(tm, "创建新角色", w * 0.195f, h * 0.825f, Color(0xFFF5EBD4), 14.sp)
+    drawInkButton(w * 0.365f, h * 0.80f, w * 0.27f, h * 0.09f, Color(0xFFB45309))
+    title(tm, "职业试炼", w * 0.50f, h * 0.825f, Color(0xFFF5EBD4), 14.sp)
+    drawInkButton(w * 0.67f, h * 0.80f, w * 0.27f, h * 0.09f, Color(0xFF78716C))
+    title(tm, "进入标题", w * 0.805f, h * 0.825f, Color(0xFFF5EBD4), 14.sp)
+}
+
+/** 职业试炼：三职业各自 4 条生涯累计目标，全达成解锁备用皮肤并可在此更换 */
+private fun DrawScope.drawTrials(
+    meta: RunMeta,
+    progress: ProgressStore,
+    tm: TextMeasurer,
+    w: Float,
+    h: Float
+) {
+    drawInkPaperBackdrop(w, h, meta.pulse, progress.preferredInkRank)
+    drawInkWoodBar(w * 0.2f, h * 0.03f, w * 0.6f, h * 0.09f)
+    title(tm, "职业试炼", w * 0.5f, h * 0.045f, Color(0xFFF5EBD4), 22.sp)
+    title(tm, "完成全部试炼解锁该职业皮肤 · 按职业累计", w * 0.5f, h * 0.105f, Color(0xFF5C4033), 11.sp)
+    HeroClass.entries.forEachIndexed { ci, hero ->
+        val x0 = w * 0.05f + ci * w * 0.32f
+        val colW = w * 0.28f
+        val cx = x0 + colW * 0.5f
+        val stats = progress.trialStats(hero)
+        val unlocked = progress.isAltSkinUnlocked(hero)
+        val cur = progress.classSkin(hero)
+        drawParchmentPanel(x0, h * 0.15f, colW, h * 0.68f, strokeCol = if (unlocked) Color(0xFF4ADE80) else Color(0xAA5C4033))
+        title(tm, GameI18n.tr(hero.displayName), cx, h * 0.175f, hero.color, 14.sp)
+        drawCuteHero(cx, h * 0.245f, h * 0.030f, 1f, cur, bob = sin(meta.pulse * 3f + ci * 2f) * 2.5f)
+        HeroTrials.trialsFor(hero).forEachIndexed { ti, t ->
+            val done = HeroTrials.isDone(t, stats)
+            title(
+                tm,
+                (if (done) "✓ " else "") + GameI18n.tr(t.title) + " " + HeroTrials.progressNum(t, stats),
+                cx, h * (0.32f + ti * 0.075f),
+                if (done) Color(0xFF4ADE80) else Color(0xFF2C1810),
+                11.sp
+            )
+            if (!done) {
+                title(tm, t.desc, cx, h * (0.32f + ti * 0.075f) + h * 0.026f, Color(0xFF78716C), 8.sp)
+            }
+        }
+        // 皮肤切换：默认皮始终可用；备用皮解锁后可选
+        val def = SkinCatalog.defaultFor(hero)
+        val alt = HeroTrials.rewardSkinFor(hero)
+        val selDef = cur.id == def.id
+        drawInkButton(x0 + w * 0.01f, h * 0.66f, colW * 0.46f, h * 0.07f, if (selDef) Color(0xFF4D7C0F) else Color(0xFF78716C), 8f)
+        title(tm, def.displayName, x0 + w * 0.01f + colW * 0.23f, h * 0.68f, Color(0xFFF5EBD4), 10.sp)
+        val selAlt = cur.id == alt.id
+        drawInkButton(x0 + colW * 0.51f, h * 0.66f, colW * 0.46f, h * 0.07f, when {
+            selAlt -> Color(0xFFB45309)
+            unlocked -> Color(0xFF78716C)
+            else -> Color(0xFF3F3F46)
+        }, 8f)
+        title(
+            tm,
+            if (unlocked) alt.displayName else "？？？",
+            x0 + colW * 0.51f + colW * 0.23f, h * 0.68f,
+            if (unlocked) Color(0xFFF5EBD4) else Color(0xFFA1A1AA),
+            10.sp
+        )
+    }
+    drawInkButton(w * 0.35f, h * 0.875f, w * 0.30f, h * 0.085f, Color(0xFF78716C))
+    title(tm, "返回角色", w * 0.5f, h * 0.895f, Color(0xFFF5EBD4), 14.sp)
 }
 
 private fun DrawScope.drawCreateChar(
