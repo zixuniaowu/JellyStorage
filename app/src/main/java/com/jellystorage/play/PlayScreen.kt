@@ -214,6 +214,19 @@ fun PlayScreen(modifier: Modifier = Modifier) {
     var loginIsRegister by remember { mutableStateOf(!progress.hasLocalAccount()) }
     var guestHint by remember { mutableStateOf("") }
     var privacyMessage by remember { mutableStateOf("") }
+    // 种子远征面板：输入好友种子码打同一张图；显示本档种子码供分享
+    var seedPanelVisible by remember { mutableStateOf(false) }
+    var seedInput by remember { mutableStateOf("") }
+    var seedMsg by remember { mutableStateOf("") }
+    var seedCurCode by remember { mutableStateOf<String?>(null) }
+    val seedRunMeta = remember { RunMeta() }
+    LaunchedEffect(seedPanelVisible) {
+        if (seedPanelVisible && progress.hasActiveRun() && progress.loadActiveRun(seedRunMeta)) {
+            seedCurCode = SeedCode.encode(seedRunMeta.runSeed, seedRunMeta.inkRank)
+        } else if (!seedPanelVisible) {
+            seedCurCode = null
+        }
+    }
     var createName by remember {
         mutableStateOf(GameCharacter.autoName(progress.listCharacters().size))
     }
@@ -777,6 +790,17 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                             confirmKind = ""
                                             startRunWithActiveCharacter(meta, progress, daily = true) { screen = it }
                                         }
+                                        "seed_run" -> {
+                                            val code = confirmPayload
+                                            confirmKind = ""
+                                            confirmPayload = ""
+                                            val err = startRunWithActiveCharacter(meta, progress, seedCode = code) { screen = it }
+                                            if (err != null) {
+                                                seedInput = code
+                                                seedMsg = err
+                                                seedPanelVisible = true
+                                            }
+                                        }
                                         "delete_char" -> {
                                             val id = confirmPayload
                                             confirmKind = ""
@@ -859,6 +883,10 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                                 }
                             },
                             onLanguageToggle = toggleLanguage,
+                            onOpenSeedPanel = {
+                                seedMsg = ""
+                                seedPanelVisible = true
+                            },
                             gearScroll = gearScroll
                         )
                     }
@@ -916,6 +944,43 @@ fun PlayScreen(modifier: Modifier = Modifier) {
             drawConfirmLayer(tm, w, h, confirmKind)
         }
     }
+    if (seedPanelVisible && screen == Screen.TITLE) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xCC1C1208)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier
+                    .background(Color(0xF03D2914), RoundedCornerShape(16.dp))
+                    .padding(6.dp)
+            ) {
+                SeedPanel(
+                    input = seedInput,
+                    message = seedMsg,
+                    currentCode = seedCurCode,
+                    language = language,
+                    onInputChange = { seedInput = it },
+                    onLaunch = {
+                        if (SeedCode.decode(seedInput) == null) {
+                            seedMsg = "种子码格式不对，示例 1lz9f3_2"
+                            return@SeedPanel
+                        }
+                        if (progress.hasActiveRun()) {
+                            seedPanelVisible = false
+                            confirmKind = "seed_run"
+                            confirmPayload = seedInput
+                        } else {
+                            val err = startRunWithActiveCharacter(meta, progress, seedCode = seedInput) { screen = it }
+                            if (err != null) seedMsg = err else seedPanelVisible = false
+                        }
+                    },
+                    onCancel = { seedPanelVisible = false }
+                )
+            }
+        }
+    }
     if (screen == Screen.LOGIN) {
         LoginPanel(
             username = loginUser,
@@ -967,22 +1032,40 @@ fun PlayScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** 用当前选中角色直接开局（职业固定为创建时选择） */
+/** 用当前选中角色直接开局（职业固定为创建时选择）。seedCode 非空时按分享种子开局 */
 private fun startRunWithActiveCharacter(
     meta: RunMeta,
     progress: ProgressStore,
     daily: Boolean = false,
+    seedCode: String? = null,
     setScreen: (Screen) -> Unit
-) {
+): String? {
     val ch = progress.activeCharacter()
     if (ch == null) {
         setScreen(Screen.CHAR_SELECT)
-        return
+        return null
+    }
+    // 必须先完成全部校验再清档；否则锁定代数的合法种子会误删当前远征。
+    val parsedSeed = seedCode?.let {
+        when (val validation = SeedCode.validateForLaunch(it, progress.inkRankUnlocked)) {
+            SeedCode.LaunchValidation.InvalidFormat ->
+                return "种子码格式不对，示例 1lz9f3_2"
+            is SeedCode.LaunchValidation.LockedRank ->
+                return "墨阶不足：该种子需要${validation.required}代（你的上限${validation.unlocked}）"
+            is SeedCode.LaunchValidation.Valid -> validation
+        }
     }
     progress.clearActiveRun()
-    val rank = if (daily) progress.preferredInkRank.coerceAtLeast(1).coerceAtMost(progress.inkRankUnlocked.coerceAtLeast(1))
-    else progress.preferredInkRank
-    val seed = if (daily) dailyInkSeed() else null
+    val rank = when {
+        parsedSeed != null -> parsedSeed.inkRank
+        daily -> progress.preferredInkRank.coerceAtLeast(1).coerceAtMost(progress.inkRankUnlocked.coerceAtLeast(1))
+        else -> progress.preferredInkRank
+    }
+    val seed = when {
+        parsedSeed != null -> parsedSeed.seed
+        daily -> dailyInkSeed()
+        else -> null
+    }
     meta.immuneMemoryId = progress.preferredImmuneMemoryId
     meta.resetRun(ch.hero, rank, forcedSeed = seed)
     meta.characterName = ch.name
@@ -995,11 +1078,16 @@ private fun startRunWithActiveCharacter(
         StoryBook.worldPremise + StoryBook.heroGreeting(ch.hero) + storyCh.intro,
         "MAP"
     )
-    val tag = if (daily) "今日毒株" else "免疫出击"
+    val tag = when {
+        parsedSeed != null -> "种子远征"
+        daily -> "今日毒株"
+        else -> "免疫出击"
+    }
     meta.addJournal("$tag · ${ch.name}（${ch.hero.displayName}） · ${mutationGenerationLabel(rank)} · ${meta.affixHudLine()}")
     meta.toast = "$tag：${ch.name} · ${meta.affixHudLine()}"
     meta.toastT = 2.2f
     setScreen(Screen.STORY)
+    return null
 }
 
 private fun DrawScope.drawConfirmLayer(tm: TextMeasurer, w: Float, h: Float, kind: String) {
@@ -1227,6 +1315,7 @@ private fun handleUiTap(
     onPrivacyPolicy: () -> Unit = {},
     onAdPrivacy: () -> Unit = {},
     onLanguageToggle: () -> Unit = {},
+    onOpenSeedPanel: () -> Unit = {},
     gearScroll: Float = 0f
 ) {
     if (meta.setAwakenedT > 0f) {
@@ -1292,12 +1381,16 @@ private fun handleUiTap(
                 meta.toastT = 1.8f
             }
             // 今日毒株：固定日种子（无存档或有存档均可，有存档需确认）
-            if (pos.x in w * 0.06f..w * 0.40f && pos.y in h * 0.78f..h * 0.88f) {
+            if (pos.x in w * 0.06f..w * 0.46f && pos.y in h * 0.88f..h * 0.965f) {
                 if (progress.hasActiveRun()) {
                     requestConfirm("daily_run", "")
                 } else {
                     startRunWithActiveCharacter(meta, progress, daily = true, setScreen = setScreen)
                 }
+            }
+            // 种子远征：弹出种子码面板
+            if (pos.x in w * 0.50f..w * 0.90f && pos.y in h * 0.88f..h * 0.965f) {
+                onOpenSeedPanel()
             }
         }
         Screen.CHAR_SELECT -> {
@@ -2378,16 +2471,13 @@ private fun DrawScope.drawTitle(
         menuBtn(h * 0.64f, h * 0.09f, "操作说明", Color(0xFF60A5FA))
         menuBtn(h * 0.75f, h * 0.09f, "记录 / 设置", Color(0xFFA78BFA))
     }
-    // 今日毒株入口（固定日种子，可攀比）
-    drawInkButton(w * 0.06f, h * 0.78f, w * 0.34f, h * 0.09f, Color(0xFF9F1239))
-    title(tm, "今日毒株", w * 0.23f, h * 0.795f, Color(0xFFF5EBD4), 13.sp)
-    title(tm, dailyInkTitle(), w * 0.23f, h * 0.835f, Color(0xFFFECACA), 8.sp)
-    title(
-        tm,
-        "档案 ${progress.localUsername()}  通关${progress.runsWon} 出征${progress.runsStarted} 击杀${progress.lifetimeKills}" +
-            if (hasSave) " ·有存档" else "",
-        w * 0.5f, h * 0.92f, Color(0xFF5C4033), 10.sp
-    )
+    // 底部双入口：今日毒株（固定日种子）+ 种子远征（好友互发种子码打同一张图）
+    drawInkButton(w * 0.06f, h * 0.88f, w * 0.40f, h * 0.085f, Color(0xFF9F1239))
+    title(tm, "今日毒株", w * 0.26f, h * 0.892f, Color(0xFFF5EBD4), 13.sp)
+    title(tm, dailyInkTitle(), w * 0.26f, h * 0.935f, Color(0xFFFECACA), 8.sp)
+    drawInkButton(w * 0.50f, h * 0.88f, w * 0.40f, h * 0.085f, Color(0xFF7C2D12))
+    title(tm, "种子远征", w * 0.70f, h * 0.892f, Color(0xFFF5EBD4), 13.sp)
+    title(tm, "输入种子码 · 打同一张图", w * 0.70f, h * 0.935f, Color(0xFFFDBA74), 8.sp)
 }
 
 private fun DrawScope.drawCharSelect(
@@ -4159,6 +4249,7 @@ private fun DrawScope.drawArena(
     if (meta.paused) {
         drawRect(Color(0xAA020617), size = Size(w, h))
         title(tm, "暂停", w * 0.5f, h * 0.30f, Color.White, 30.sp)
+        title(tm, "种子 ${SeedCode.encode(meta.runSeed, meta.inkRank)}", w * 0.5f, h * 0.36f, Color(0xFF94A3B8), 11.sp)
         drawRoundRect(Color(0xFF22C55E), Offset(w * 0.2f, h * 0.42f), Size(w * 0.6f, h * 0.09f), CornerRadius(16f))
         title(tm, "继续战斗", w * 0.5f, h * 0.44f, Color.White, 17.sp)
         drawRoundRect(Color(0xFF2563EB), Offset(w * 0.2f, h * 0.54f), Size(w * 0.6f, h * 0.09f), CornerRadius(16f))

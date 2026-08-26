@@ -40,8 +40,8 @@ android {
         applicationId = "com.jellystorage"
         minSdk = 26
         targetSdk = 36
-        versionCode = 210
-        versionName = "1.11.0"
+        versionCode = 220
+        versionName = "1.12.0"
 
         manifestPlaceholders["admobAppId"] = adMobAppId
         buildConfigField("boolean", "ADS_USE_TEST_MODE", (!playStoreRelease).toString())

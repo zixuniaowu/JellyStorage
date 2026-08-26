@@ -17,6 +17,7 @@ release.properties
 *.aar
 reports/
 build_out.txt
+gradle_out.txt
 
 # OS / editor files
 .DS_Store
