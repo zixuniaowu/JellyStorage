@@ -130,6 +130,8 @@ internal object JapaneseTranslations {
         put("魔法盾", "マジックシールド")
         put("盾", "盾")
         put("法盾护体·受击迟缓来敌", "法盾で身を護り、攻撃してきた敵を鈍化させる")
+        put("全屏雷暴·连锁所有敌人", "画面内の敵すべてを連鎖する雷嵐")
+        put("雷暴", "雷嵐")
 
         // Main sections
         put("怎么玩", "遊び方")

@@ -1390,22 +1390,29 @@ class ArenaSim(
 
     private fun warriorWhirl(sm: Float) {
         float(player.x, player.y - 44f, "旋风斩!", 251, 146, 60, 1.25f)
-        rings.add(RingFx(player.x, player.y, 120f * u, 0.45f, 0.45f, 0xFFFB923C))
-        rings.add(RingFx(player.x, player.y, 80f * u, 0.4f, 0.4f, 0xFFFBBF24))
+        rings.add(RingFx(player.x, player.y, 140f * u, 0.45f, 0.45f, 0xFFFB923C))
+        rings.add(RingFx(player.x, player.y, 90f * u, 0.4f, 0.4f, 0xFFFBBF24))
         var hits = 0
         for (e in enemies) {
             if (e.dead) continue
-            if (dist(player.x, player.y, e.x, e.y) <= 125f * u + e.radius) {
-                damageEnemy(e, player.atk * 1.15f * sm, heavy = hits == 0)
-                damageEnemy(e, player.atk * 0.55f * sm)
+            val d0 = dist(player.x, player.y, e.x, e.y)
+            if (d0 <= 140f * u + e.radius) {
+                damageEnemy(e, player.atk * 1.5f * sm, heavy = hits == 0)
+                damageEnemy(e, player.atk * 0.8f * sm)
+                // 旋风涡流：把敌人往中心带，砍得 hơn
+                if (d0 > 60f * u) {
+                    val dd = d0.coerceAtLeast(1f)
+                    e.x -= (e.x - player.x) / dd * 14f * u
+                    e.y -= (e.y - player.y) / dd * 14f * u
+                }
                 hits++
             }
         }
-        burst(player.x, player.y, 18, 0xFFFB923C, 200f * u, 0.4f)
+        burst(player.x, player.y, 22, 0xFFFB923C, 230f * u, 0.45f)
         // 旋风双弧：外弧顺时针、内弧逆时针的笔锋剪影 + 切向碎片
-        slashArc(player.x, player.y, 118f * u, prng.nextFloat() * 6.28318f, 6.28318f, 0.3f, 0xFFFB923C, 12f, spin = 5.5f)
-        slashArc(player.x, player.y, 86f * u, prng.nextFloat() * 6.28318f, 6.28318f, 0.34f, 0xFFFBBF24, 8f, spin = -6.5f)
-        shardBurst(player.x, player.y, 10, 0xFFFDBA74, 260f * u, 0.35f, 16f * u)
+        slashArc(player.x, player.y, 132f * u, prng.nextFloat() * 6.28318f, 6.28318f, 0.32f, 0xFFFB923C, 14f, spin = 5.5f)
+        slashArc(player.x, player.y, 94f * u, prng.nextFloat() * 6.28318f, 6.28318f, 0.36f, 0xFFFBBF24, 9f, spin = -6.5f)
+        shardBurst(player.x, player.y, 12, 0xFFFDBA74, 290f * u, 0.38f, 17f * u)
         val echoRank = coreRank(CoreInkId.WARRIOR_WHIRL_ECHO)
         if (echoRank > 0) {
             scheduleEcho(
@@ -1421,20 +1428,21 @@ class ArenaSim(
     private fun fireBlast(target: Actor?, sm: Float) {
         val tx = target?.x ?: (player.x + player.facing * 200f * u)
         val ty = target?.y ?: player.y
-        rings.add(RingFx(tx, ty, 110f * u, 0.5f, 0.5f, 0xFFFF6B35))
-        rings.add(RingFx(tx, ty, 60f * u, 0.45f, 0.45f, 0xFFFBBF24))
-        burst(tx, ty, 30, 0xFFFF6B35, 260f * u, 0.55f)
+        rings.add(RingFx(tx, ty, 130f * u, 0.55f, 0.55f, 0xFFFF6B35))
+        rings.add(RingFx(tx, ty, 70f * u, 0.45f, 0.45f, 0xFFFBBF24))
+        burst(tx, ty, 34, 0xFFFF6B35, 300f * u, 0.6f)
         // 爆心火星 + 余焰双层飞散
-        shardBurst(tx, ty, 14, 0xFFFF8C42, 340f * u, 0.5f, 20f * u)
-        shardBurst(tx, ty, 8, 0xFFFBBF24, 210f * u, 0.42f, 13f * u)
+        shardBurst(tx, ty, 16, 0xFFFF8C42, 380f * u, 0.55f, 22f * u)
+        shardBurst(tx, ty, 9, 0xFFFBBF24, 230f * u, 0.45f, 14f * u)
         for (e in enemies) {
             if (e.dead) continue
-            if (dist(tx, ty, e.x, e.y) <= 112f * u + e.radius) {
-                damageEnemy(e, player.atk * 2.3f * sm, heavy = true)
-                e.applyStatus(StatusType.BURN, 3.5f, 16f * burnAmp)
+            if (dist(tx, ty, e.x, e.y) <= 132f * u + e.radius) {
+                damageEnemy(e, player.atk * 2.6f * sm, heavy = true)
+                e.applyStatus(StatusType.BURN, 3.5f, 18f * burnAmp)
             }
         }
         float(tx, ty - 30f, "炎爆!", 255, 107, 53, 1.3f)
+        impactFlash = max(impactFlash, 0.2f)
         val cinderRank = coreRank(CoreInkId.MAGE_CINDER_FIELD)
         if (cinderRank > 0) {
             val life = 2.4f + cinderRank * 0.55f
@@ -1454,21 +1462,21 @@ class ArenaSim(
         val focus = target ?: enemies.filter { !it.dead }.minByOrNull { dist(player.x, player.y, it.x, it.y) }
         val cx = focus?.x ?: player.x
         val cy = focus?.y ?: player.y
-        rings.add(RingFx(cx, cy, 100f * u, 0.55f, 0.55f, 0xFFA78BFA))
+        rings.add(RingFx(cx, cy, 120f * u, 0.55f, 0.55f, 0xFFA78BFA))
                 float(cx, cy - 36f, "镇符!", 167, 139, 250, 1.25f)
         // 镇印迸裂：紫墨向四周压出
-        shardBurst(cx, cy, 8, 0xFFC4B5FD, 250f * u, 0.4f, 15f * u)
+        shardBurst(cx, cy, 10, 0xFFC4B5FD, 290f * u, 0.42f, 16f * u)
         for (e in enemies) {
             if (e.dead) continue
-            if (dist(cx, cy, e.x, e.y) <= 105f * u + e.radius) {
-                damageEnemy(e, player.atk * 0.9f * sm)
-                e.applyStatus(StatusType.FREEZE, 1.2f, 1f)
+            if (dist(cx, cy, e.x, e.y) <= 120f * u + e.radius) {
+                damageEnemy(e, player.atk * 1.3f * sm)
+                e.applyStatus(StatusType.FREEZE, 1.4f, 1f)
                 e.applyStatus(StatusType.SLOW, 3.5f, 0.55f)
                 e.vx = 0f; e.vy = 0f
                 float(e.x, e.y - e.radius, "镇!", 192, 132, 252, 1.0f)
             }
         }
-        burst(cx, cy, 14, 0xFFA78BFA, 120f * u, 0.4f)
+        burst(cx, cy, 18, 0xFFA78BFA, 150f * u, 0.45f)
         val echoRank = coreRank(CoreInkId.TAOIST_SEAL_ECHO)
         if (echoRank > 0) {
             scheduleEcho(
@@ -1519,39 +1527,38 @@ class ArenaSim(
         var prevX = player.x
         var prevY = player.y
         val branchRank = coreRank(CoreInkId.MAGE_STORM_BRANCH)
-        val maxHops = 6 + branchRank
-        val searchRange = (220f + branchRank * 28f) * u
+        // 全屏雷暴：跳满全场所有敌人（核心墨印再加盖帽）
+        val maxHops = 12 + branchRank * 3
         while (cur != null && hops < maxHops && hit.size < living.size) {
             hit.add(cur)
-            damageEnemy(cur, player.atk * (1.3f - hops * 0.06f), heavy = hops == 0)
+            // 无衰减：每一个目标都吃满伤害
+            damageEnemy(cur, player.atk * 1.35f, heavy = hops == 0)
             cur.applyStatus(StatusType.VULN, 2.2f, 0.2f)
-            // bolt visual as thin ring trail
-            rings.add(RingFx(cur.x, cur.y, 28f * u, 0.28f, 0.28f, 0xFFA78BFA))
-            burst(cur.x, cur.y, 6, 0xFFC4B5FD, 90f * u, 0.25f)
-            // 落点电离碎片 + 随机分叉侧雷
-            shardBurst(cur.x, cur.y, 3, 0xFFC4B5FD, 210f * u, 0.24f, 12f * u)
-            val forkA = prng.nextFloat() * 6.28318f
-            bolts.add(
-                BoltFx(cur.x, cur.y, cur.x + cos(forkA) * 36f * u, cur.y + sin(forkA) * 36f * u, 0.18f, 0.18f, 0xFFC4B5FD)
-            )
-            // fake line via mid rings
-            val mx = (prevX + cur.x) * 0.5f
-            val my = (prevY + cur.y) * 0.5f
-            rings.add(RingFx(mx, my, 12f * u, 0.15f, 0.15f, 0xFFE9D5FF))
-            bolts.add(BoltFx(prevX, prevY, cur.x, cur.y, 0.24f, 0.24f, 0xFFE9D5FF))
+            rings.add(RingFx(cur.x, cur.y, 34f * u, 0.3f, 0.3f, 0xFFA78BFA))
+            burst(cur.x, cur.y, 8, 0xFFC4B5FD, 120f * u, 0.28f)
+            // 落点电离碎片 + 双分叉侧雷
+            shardBurst(cur.x, cur.y, 4, 0xFFC4B5FD, 240f * u, 0.26f, 13f * u)
+            repeat(2) {
+                val forkA = prng.nextFloat() * 6.28318f
+                bolts.add(
+                    BoltFx(cur.x, cur.y, cur.x + cos(forkA) * 44f * u, cur.y + sin(forkA) * 44f * u, 0.18f, 0.18f, 0xFFC4B5FD)
+                )
+            }
+            bolts.add(BoltFx(prevX, prevY, cur.x, cur.y, 0.26f, 0.26f, 0xFFE9D5FF))
             float(cur.x, cur.y - cur.radius - 6f, if (hops == 0) "雷击!" else "连锁!", 167, 139, 250, 0.95f)
             prevX = cur.x
             prevY = cur.y
             hops++
             val from = cur
+            // 不限距离：全场最近的未命中敌人
             cur = living
                 .filter { it !in hit }
-                .filter { dist(from.x, from.y, it.x, it.y) < searchRange }
                 .minByOrNull { dist(from.x, from.y, it.x, it.y) }
         }
         val branch = if (branchRank > 0) " · 雷枝${branchRank}阶" else ""
-        float(player.x, player.y - 44f, "链雷 x$hops$branch", 167, 139, 250, 1.2f)
-        shake = max(shake, 0.25f)
+        float(player.x, player.y - 44f, "雷暴 x$hops$branch", 167, 139, 250, 1.3f)
+        impactFlash = max(impactFlash, 0.24f)
+        shake = max(shake, 0.38f)
     }
 
     /** Taoist S2: big heal + cleanse control. */
@@ -1797,7 +1804,7 @@ class ArenaSim(
                     player.x + cos(a) * player.radius,
                     player.y + sin(a) * player.radius,
                     cos(a) * sp, sin(a) * sp, 1.85f, 11f * u,
-                    player.atk * (0.72f + if (k == 0) 0.18f else 0f),
+                    player.atk * (1.0f + if (k == 0) 0.2f else 0f),
                     true, 2,
                     if (k == 0) StatusType.SLOW else null, 1.6f, 0.7f,
                     tint = gear.element.argb()
@@ -1832,7 +1839,7 @@ class ArenaSim(
                 e.applyStatus(StatusType.POISON, 5.5f, player.atk * 0.45f)
                 e.applyStatus(StatusType.VULN, 4f, 0.28f)
                 e.applyStatus(StatusType.SLOW, 3f, 0.35f)
-                damageEnemy(e, player.atk * 0.5f)
+                damageEnemy(e, player.atk * 0.8f)
                 float(e.x, e.y - e.radius - 6f, "中毒!", 163, 230, 53, 1.1f)
                 n++
             }
@@ -1876,7 +1883,7 @@ class ArenaSim(
         val focusX = target?.x ?: (player.x + player.facing * 180f * u)
         val focusY = target?.y ?: player.y
         val living = enemies.filter { !it.dead }
-        for (i in 0 until 7) {
+        for (i in 0 until 10) {
             val e = living.getOrNull(i % living.size.coerceAtLeast(1))
             val mx = if (e != null) e.x + (prng.nextFloat() - 0.5f) * 40f * u
             else focusX + (prng.nextFloat() - 0.5f) * 220f * u
@@ -1888,16 +1895,17 @@ class ArenaSim(
                     mx, my - 80f * u,
                     0f, 420f * u,
                     0.35f + i * 0.05f, 18f * u,
-                    player.atk * 1.55f, true, 6,
-                    StatusType.BURN, 2f, 13f * burnAmp,
-                    splash = 78f * u
+                    player.atk * 1.75f, true, 6,
+                    StatusType.BURN, 2f, 14f * burnAmp,
+                    splash = 88f * u
                 )
             )
             rings.add(RingFx(mx, my, 28f * u, 0.5f, 0.5f, 0xFFA78BFA))
             // 落点预警环：随陨星下落同步收束，命中即爆
             val tele = 0.35f + i * 0.05f + 0.4f
-            rings.add(RingFx(mx, my, 76f * u, tele, tele, 0xFFFDBA74))
+            rings.add(RingFx(mx, my, 86f * u, tele, tele, 0xFFFDBA74))
         }
+        shake = max(shake, 0.5f)
     }
 
     private fun scheduleEcho(

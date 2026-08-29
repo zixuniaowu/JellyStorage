@@ -61,21 +61,21 @@ fun skillsFor(hero: HeroClass): List<SkillDef> = when (hero) {
         SkillDef(SkillSlot.BASIC, "斩击", "斩", 0.30f, 0f, "近战扇形·连斩加伤", 1),
         SkillDef(SkillSlot.S1, "冲锋", "冲", 4.2f, 16f, "突进重创·短无敌", 2),
         SkillDef(SkillSlot.S2, "铁壁", "盾", 6.5f, 18f, "护盾+反伤", 4),
-        SkillDef(SkillSlot.S3, "旋风斩", "风", 5.5f, 22f, "自身周围旋斩多段", 6),
+        SkillDef(SkillSlot.S3, "旋风斩", "风", 4.8f, 20f, "自身周围旋斩多段", 6),
         SkillDef(SkillSlot.ULT, "墨马·裂地", "马", 11f, 34f, "必杀：全屏墨马奔袭·重创", 8)
     )
     HeroClass.MAGE -> listOf(
         SkillDef(SkillSlot.BASIC, "火球", "火", 0.42f, 0f, "火球溅射·点燃", 1),
         SkillDef(SkillSlot.S1, "魔法盾", "盾", 9f, 24f, "法盾护体·受击迟缓来敌", 1),
-        SkillDef(SkillSlot.S2, "链雷", "雷", 5.8f, 26f, "连锁弹射多目标", 4),
-        SkillDef(SkillSlot.S3, "炎爆", "爆", 6.2f, 28f, "目标点范围大爆炸", 6),
+        SkillDef(SkillSlot.S2, "链雷", "雷", 5.0f, 24f, "全屏雷暴·连锁所有敌人", 4),
+        SkillDef(SkillSlot.S3, "炎爆", "爆", 5.5f, 26f, "目标点范围大爆炸", 6),
         SkillDef(SkillSlot.ULT, "墨马·流火", "马", 11f, 40f, "必杀：全屏墨马·附燃", 8)
     )
     HeroClass.TAOIST -> listOf(
         SkillDef(SkillSlot.BASIC, "三符", "符", 0.38f, 0f, "三道灵符·命中回血", 1),
         SkillDef(SkillSlot.S1, "毒雾", "毒", 5.0f, 20f, "毒圈持续掉血+易伤", 2),
         SkillDef(SkillSlot.S2, "回春", "春", 6.0f, 22f, "大额回血·解控", 4),
-        SkillDef(SkillSlot.S3, "镇符", "镇", 5.5f, 24f, "禁锢+范围减速", 6),
+        SkillDef(SkillSlot.S3, "镇符", "镇", 4.5f, 18f, "禁锢+范围减速", 6),
         SkillDef(SkillSlot.ULT, "墨马·天骑", "马", 11f, 36f, "必杀：全屏墨马·回血", 8)
     )
 }
