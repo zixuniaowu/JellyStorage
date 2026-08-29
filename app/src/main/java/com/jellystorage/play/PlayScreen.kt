@@ -3689,13 +3689,17 @@ private fun DrawScope.drawArena(
         }
     }
 
-    // rings under characters
+    // rings under characters（屏外裁剪：省下的绘制就是帧率和响应速度）
     for (r in sim.rings) {
         val a = (r.life / r.maxLife).coerceIn(0f, 1f)
+        val sxr = wx(r.x)
+        if (sxr < -160f || sxr > w + 160f) continue
+        val syr = wy(r.y)
+        if (syr < -160f || syr > viewH + 160f) continue
         drawCircle(
             Color(r.color).copy(alpha = a * 0.7f),
             wr(r.r * (1.15f - a * 0.15f)),
-            Offset(wx(r.x), wy(r.y)),
+            Offset(sxr, syr),
             style = Stroke(4f)
         )
     }
@@ -3719,13 +3723,17 @@ private fun DrawScope.drawArena(
     // 墨锋碎片：锥形笔触，宽度随生命变细（水墨笔锋的飞白感）
     for (s in sim.shards) {
         val alpha = (s.life / s.maxLife).coerceIn(0f, 1f)
+        val sxs = wx(s.x)
+        if (sxs < -120f || sxs > w + 120f) continue
+        val sys = wy(s.y)
+        if (sys < -120f || sys > viewH + 120f) continue
         val tx = s.x - cos(s.angle) * s.len
         val ty = s.y - sin(s.angle) * s.len
         drawLine(
             Color(s.color).copy(alpha = alpha * 0.9f),
-            Offset(wx(s.x), wy(s.y)),
+            Offset(sxs, sys),
             Offset(wx(tx), wy(ty)),
-            wr(s.width) * (0.35f + alpha),
+            wr(s.width) * (0.6f + alpha),
             StrokeCap.Round
         )
     }

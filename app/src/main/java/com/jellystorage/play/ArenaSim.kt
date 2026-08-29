@@ -643,7 +643,7 @@ class ArenaSim(
         tickStatuses(player, d)
         for (i in skillCd.indices) if (skillCd[i] > 0f) skillCd[i] -= d
         // tighter mana — skills matter more
-        mp = min(maxMp, mp + (11f * mpRegenMul * (roomTrial?.mpRegenMul ?: 1f)) * d)
+        mp = min(maxMp, mp + (15f * mpRegenMul * (roomTrial?.mpRegenMul ?: 1f)) * d)
         if (player.hitFlash > 0f) player.hitFlash -= d
         if (playerInvuln > 0f) playerInvuln -= d
         if (slashFx > 0f) slashFx -= d * 3.5f
@@ -1619,7 +1619,7 @@ class ArenaSim(
             slashArc(player.x, player.y, range * 0.95f, ang - effArc, effArc * 2f, 0.24f, 0xFFFB923C, 14f, spin = 0.7f)
             shardBurst(player.x + cos(ang) * range * 0.75f, player.y + sin(ang) * range * 0.75f, 6, 0xFFFB923C, 210f * u, 0.3f, 15f * u, ang, 1.3f, 5f)
         } else {
-            slashArc(player.x, player.y, range * 0.72f, ang - effArc, effArc * 2f, 0.17f, 0xFFFFE3B8, 9f, spin = 0.5f)
+            slashArc(player.x, player.y, range * 0.78f, ang - effArc, effArc * 2f, 0.22f, 0xFFFFE3B8, 12f, spin = 0.5f)
             shardBurst(player.x + cos(ang) * range * 0.7f, player.y + sin(ang) * range * 0.7f, 3, 0xFFFFC98A, 150f * u, 0.22f, 12f * u, ang, 1.1f, 4f)
         }
         val dmgMul = mul * (if (heavy) 1.55f else 1f) * (1f + player.powerOf(StatusType.RAGE)) *
@@ -1740,7 +1740,7 @@ class ArenaSim(
 
     private fun fireball(target: Actor?, dmg: Float, st: StatusType?, stT: Float, stP: Float) {
         val ang = aimAngle(target)
-        val sp = 460f * u
+        val sp = 520f * u
         shots.add(
             Shot(
                 player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
@@ -1753,7 +1753,7 @@ class ArenaSim(
     /** 满蓝双发的第二发：偏轴火球，与主弹同弹速同特效（法师普攻的变化拍） */
     private fun twinFireball(target: Actor?, dmg: Float, st: StatusType?, stT: Float, stP: Float) {
         val ang = aimAngle(target) + 0.38f
-        val sp = 460f * u
+        val sp = 520f * u
         shots.add(
             Shot(
                 player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
@@ -1974,7 +1974,7 @@ class ArenaSim(
     /** 定向碎片飞散：angleBase+spread（弧度）决定扇形方向；不传 angleBase 则全向 */
     private fun shardBurst(
         x: Float, y: Float, n: Int, color: Long, speed: Float, life: Float, len: Float,
-        angleBase: Float = Float.NaN, spread: Float = 6.28318f, width: Float = 4f
+        angleBase: Float = Float.NaN, spread: Float = 6.28318f, width: Float = 6f
     ) {
         for (i in 0 until n) {
             if (shards.size > 90) return
@@ -1984,8 +1984,8 @@ class ArenaSim(
             shards.add(
                 ShardFx(
                     x, y, cos(a) * sp, sin(a) * sp, a,
-                    len * (0.7f + prng.nextFloat() * 0.6f),
-                    life * (0.7f + prng.nextFloat() * 0.6f), life, color, width
+                    len * (0.95f + prng.nextFloat() * 0.7f),
+                    life * (0.85f + prng.nextFloat() * 0.5f), life, color, width
                 )
             )
         }
