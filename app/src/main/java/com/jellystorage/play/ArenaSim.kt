@@ -1331,7 +1331,13 @@ class ArenaSim(
                 4 -> castInkHorse(sm)
             }
             HeroClass.MAGE -> when (slot) {
-                0 -> fireball(target, player.atk * 1.15f * sm, StatusType.BURN, 2.5f, 8f * burnAmp)
+                0 -> {
+                    fireball(target, player.atk * 1.15f * sm, StatusType.BURN, 2.5f, 8f * burnAmp)
+                    // 满蓝双发：蓝量≥90%时补一发偏轴火球（不耗蓝；放技能掉蓝后回落单发，形成节奏循环）
+                    if (mp >= maxMp * 0.9f) {
+                        twinFireball(target, player.atk * 1.15f * sm * 0.85f, StatusType.BURN, 2.5f, 8f * burnAmp)
+                    }
+                }
                 1 -> iceRing()
                 2 -> chainLightning(target)
                 3 -> fireBlast(target, sm)
@@ -1670,6 +1676,19 @@ class ArenaSim(
 
     private fun fireball(target: Actor?, dmg: Float, st: StatusType?, stT: Float, stP: Float) {
         val ang = aimAngle(target)
+        val sp = 460f * u
+        shots.add(
+            Shot(
+                player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
+                cos(ang) * sp, sin(ang) * sp, 1.7f, 15f * u, dmg, true, 1, st, stT, stP,
+                splash = 52f * u
+            )
+        )
+    }
+
+    /** 满蓝双发的第二发：偏轴火球，与主弹同弹速同特效（法师普攻的变化拍） */
+    private fun twinFireball(target: Actor?, dmg: Float, st: StatusType?, stT: Float, stP: Float) {
+        val ang = aimAngle(target) + 0.38f
         val sp = 460f * u
         shots.add(
             Shot(

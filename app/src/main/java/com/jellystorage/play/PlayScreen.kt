@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -49,6 +50,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
@@ -345,6 +349,18 @@ fun PlayScreen(modifier: Modifier = Modifier) {
         releaseArenaTouches()
     }
 
+    // 切后台/系统回收前兜底存档：远征进行中随时写入（战斗中也会存，读档回到该节点前的地图）
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && progress.hasActiveRun()) {
+                progress.saveActiveRun(meta)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
     // auto-save whenever we are on the map (resume-safe)
     LaunchedEffect(screen, meta.nodeId, meta.stageIndex, meta.roomsCleared, meta.level) {
         if (screen == Screen.MAP) {
@@ -502,26 +518,35 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                     }
                     if (endT >= 0f && screen == Screen.ARENA) {
                         endT -= dt
-                        if (endT < 0f) {
-                            if (sim.won) {
-                                screen = settleVictory(sim, meta, progress)
-                            } else {
-                                meta.fillResult(won = false)
-                                progress.recordRunEnd(
-                                    won = false,
-                                    stageIndex = meta.stageIndex,
-                                    level = meta.level,
-                                    goldEarned = meta.goldEarnedThisRun,
-                                    kills = meta.kills
-                                )
-                                screen = Screen.RESULT
-                            }
-                            arena = null
-                            stickX = 0f; stickY = 0f
-                            basicHeld = false; s1Held = false; s2Held = false; s3Held = false; s4Held = false
-                            joyActive = false
-                            meta.paused = false
+                    if (endT < 0f) {
+                        if (sim.won) {
+                            screen = settleVictory(sim, meta, progress)
+                        } else if (progress.hasCheckpoint()) {
+                            // 章节检查点恢复：死亡不再整局清档，从本章开头重来
+                            progress.loadCheckpoint(meta)
+                            progress.saveActiveRun(meta)
+                            meta.arenaBanner = "免疫记忆重启 · 从本章重新出击"
+                            meta.arenaBannerT = 3.2f
+                            meta.toast = "免疫记忆重启 · 从本章重新出击"
+                            meta.toastT = 3f
+                            screen = Screen.MAP
+                        } else {
+                            meta.fillResult(won = false)
+                            progress.recordRunEnd(
+                                won = false,
+                                stageIndex = meta.stageIndex,
+                                level = meta.level,
+                                goldEarned = meta.goldEarnedThisRun,
+                                kills = meta.kills
+                            )
+                            screen = Screen.RESULT
                         }
+                        arena = null
+                        stickX = 0f; stickY = 0f
+                        basicHeld = false; s1Held = false; s2Held = false; s3Held = false; s4Held = false
+                        joyActive = false
+                        meta.paused = false
+                    }
                     }
                     meta.pulse += dt
                     if (meta.toastT > 0f) meta.toastT -= dt
@@ -1073,6 +1098,7 @@ private fun startRunWithActiveCharacter(
     meta.skinId = progress.classSkin(ch.hero).id
     progress.recordRunStart()
     progress.saveActiveRun(meta)
+    progress.saveCheckpoint(meta)
     val storyCh = StoryBook.chapters[0]
     meta.queueStory(
         StoryBook.worldPremise + StoryBook.heroGreeting(ch.hero) + storyCh.intro,
@@ -1943,6 +1969,9 @@ private fun handleUiTap(
                 meta.ensureVitals()
                 meta.curHp = meta.maxHp()
                 meta.curMp = meta.maxMp()
+                // 过关即存检查点：本章内阵亡可从本章开头重来（不算生涯结束）
+                progress.saveCheckpoint(meta)
+                progress.saveActiveRun(meta)
                 val ch = StoryBook.chapters.getOrNull(nextIdx)
                 if (ch != null) {
                     meta.queueStory(ch.intro, "MAP")
@@ -2621,6 +2650,7 @@ private fun DrawScope.drawHowTo(tm: TextMeasurer, w: Float, h: Float) {
         "6. 免疫记忆永久保留；每轮只带一种，开局前可切换",
         "7. 五行：火克金·金克木·木克土·土克水·水克火",
         "8. 免疫核心可重复升阶，会改变冲锋/冰环/毒雾等技能机制",
+        "9. 过关自动存档；阵亡后免疫记忆带你从本章重新出击",
         "目标：净化五器官 · 重构装备与技能 · 挑战更高变异代"
     )
     lines.forEachIndexed { i, s ->

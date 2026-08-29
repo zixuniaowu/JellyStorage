@@ -272,53 +272,67 @@ class ProgressStore(context: Context) {
 
     /** Snapshot map progress so player can resume later. */
     fun saveActiveRun(meta: RunMeta) {
+        writeRunState(meta, "")
+    }
+
+    /** 章节检查点：过关即存；阵亡后从本章开头重新出击（读写与正式存档同一套字段，前缀区分） */
+    fun saveCheckpoint(meta: RunMeta) {
+        writeRunState(meta, CKPT)
+    }
+
+    fun hasCheckpoint(): Boolean = sp.getBoolean(rk(CKPT + K_RUN_ACTIVE), false)
+
+    fun loadCheckpoint(meta: RunMeta): Boolean = readRunState(meta, CKPT)
+
+    private fun writeRunState(meta: RunMeta, ck: String) {
         meta.ensureVitals()
         val nodeName = try {
             meta.stage().nodes.find { it.id == meta.nodeId }?.name ?: "地图"
         } catch (_: Exception) {
             "地图"
         }
+        fun k(base: String) = rk(ck + base)
         sp.edit()
-            .putBoolean(rk(K_RUN_ACTIVE), true)
-            .putString(rk(K_RUN_HERO), meta.hero.name)
-            .putString(rk(K_RUN_SKIN), meta.skinId)
-            .putInt(rk(K_RUN_STAGE), meta.stageIndex)
-            .putLong(rk(K_RUN_SEED), meta.runSeed)
-            .putInt(rk(K_RUN_INK), meta.inkRank)
-            .putString(rk(K_RUN_MEMORY), meta.immuneMemoryId)
-            .putInt(rk(K_RUN_NODE), meta.nodeId)
-            .putString(rk(K_RUN_NODE_NAME), nodeName)
-            .putInt(rk(K_RUN_GOLD), meta.gold)
-            .putInt(rk(K_RUN_GOLD_EARNED), meta.goldEarnedThisRun)
-            .putInt(rk(K_RUN_WPN), meta.weaponLevel)
-            .putInt(rk(K_RUN_ARM), meta.armorLevel)
-            .putInt(rk(K_RUN_POT), meta.potions)
-            .putInt(rk(K_RUN_POT_USED), meta.potionsUsedThisRun)
-            .putInt(rk(K_RUN_LV), meta.level)
-            .putInt(rk(K_RUN_XP), meta.xp)
-            .putInt(rk(K_RUN_XP_NEED), meta.xpToLevel)
-            .putFloat(rk(K_RUN_HP), meta.curHp)
-            .putFloat(rk(K_RUN_MP), meta.curMp)
-            .putString(rk(K_RUN_PASSIVES), meta.passives.joinToString(",") { it.name })
+            .putBoolean(k(K_RUN_ACTIVE), true)
+            .putString(k(K_RUN_HERO), meta.hero.name)
+            .putString(k(K_RUN_SKIN), meta.skinId)
+            .putInt(k(K_RUN_STAGE), meta.stageIndex)
+            .putLong(k(K_RUN_SEED), meta.runSeed)
+            .putInt(k(K_RUN_INK), meta.inkRank)
+            .putString(k(K_RUN_MEMORY), meta.immuneMemoryId)
+            .putInt(k(K_RUN_NODE), meta.nodeId)
+            .putString(k(K_RUN_NODE_NAME), nodeName)
+            .putInt(k(K_RUN_GOLD), meta.gold)
+            .putInt(k(K_RUN_GOLD_EARNED), meta.goldEarnedThisRun)
+            .putInt(k(K_RUN_WPN), meta.weaponLevel)
+            .putInt(k(K_RUN_ARM), meta.armorLevel)
+            .putInt(k(K_RUN_POT), meta.potions)
+            .putInt(k(K_RUN_POT_USED), meta.potionsUsedThisRun)
+            .putInt(k(K_RUN_LV), meta.level)
+            .putInt(k(K_RUN_XP), meta.xp)
+            .putInt(k(K_RUN_XP_NEED), meta.xpToLevel)
+            .putFloat(k(K_RUN_HP), meta.curHp)
+            .putFloat(k(K_RUN_MP), meta.curMp)
+            .putString(k(K_RUN_PASSIVES), meta.passives.joinToString(",") { it.name })
             .putString(
-                rk(K_RUN_CORE_INKS),
+                k(K_RUN_CORE_INKS),
                 encodeCoreInkRanks(meta.coreInkRanks)
             )
-            .putString(rk(K_RUN_VISITED), meta.visited.joinToString(","))
-            .putInt(rk(K_RUN_KILLS), meta.kills)
-            .putInt(rk(K_RUN_ROOMS), meta.roomsCleared)
-            .putString(rk(K_RUN_JOURNAL), meta.journal.takeLast(12).joinToString("\u0001"))
-            .putString(rk(K_RUN_WEAPONS), meta.ownedWeapons.joinToString(","))
-            .putString(rk(K_RUN_EQ), meta.equippedWeaponId)
-            .putString(rk(K_RUN_ARMORS), meta.ownedArmors.joinToString(","))
-            .putString(rk(K_RUN_EQ_ARM), meta.equippedArmorId)
-            .putString(rk(K_RUN_RINGS), meta.ownedRings.joinToString(","))
-            .putString(rk(K_RUN_EQ_RING), meta.equippedRingId)
-            .putString(rk(K_RUN_BOOTS), meta.ownedBoots.joinToString(","))
-            .putString(rk(K_RUN_EQ_BOOTS), meta.equippedBootsId)
-            .putFloat(rk(K_RUN_SKILL_POW), meta.skillPowerBonus)
-            .putString(rk(K_RUN_TOMES), meta.ownedTomes.joinToString(","))
-            .putString(rk(K_RUN_BAG), meta.bag.entries.joinToString(",") { "${it.key}:${it.value}" })
+            .putString(k(K_RUN_VISITED), meta.visited.joinToString(","))
+            .putInt(k(K_RUN_KILLS), meta.kills)
+            .putInt(k(K_RUN_ROOMS), meta.roomsCleared)
+            .putString(k(K_RUN_JOURNAL), meta.journal.takeLast(12).joinToString("\u0001"))
+            .putString(k(K_RUN_WEAPONS), meta.ownedWeapons.joinToString(","))
+            .putString(k(K_RUN_EQ), meta.equippedWeaponId)
+            .putString(k(K_RUN_ARMORS), meta.ownedArmors.joinToString(","))
+            .putString(k(K_RUN_EQ_ARM), meta.equippedArmorId)
+            .putString(k(K_RUN_RINGS), meta.ownedRings.joinToString(","))
+            .putString(k(K_RUN_EQ_RING), meta.equippedRingId)
+            .putString(k(K_RUN_BOOTS), meta.ownedBoots.joinToString(","))
+            .putString(k(K_RUN_EQ_BOOTS), meta.equippedBootsId)
+            .putFloat(k(K_RUN_SKILL_POW), meta.skillPowerBonus)
+            .putString(k(K_RUN_TOMES), meta.ownedTomes.joinToString(","))
+            .putString(k(K_RUN_BAG), meta.bag.entries.joinToString(",") { "${it.key}:${it.value}" })
             .commit()
         unlockCollection(
             meta.ownedWeapons, meta.ownedArmors,
@@ -434,9 +448,12 @@ class ProgressStore(context: Context) {
         return (knownW + knownA + knownR + knownB) to total
     }
 
-    fun loadActiveRun(meta: RunMeta): Boolean {
-        if (!hasActiveRun()) return false
-        val heroName = sp.getString(rk(K_RUN_HERO), null) ?: return false
+    fun loadActiveRun(meta: RunMeta): Boolean = readRunState(meta, "")
+
+    private fun readRunState(meta: RunMeta, ck: String): Boolean {
+        fun k(base: String) = rk(ck + base)
+        if (!sp.getBoolean(k(K_RUN_ACTIVE), false)) return false
+        val heroName = sp.getString(k(K_RUN_HERO), null) ?: return false
         val hero = try {
             HeroClass.valueOf(heroName)
         } catch (_: Exception) {
@@ -444,33 +461,33 @@ class ProgressStore(context: Context) {
         }
         meta.hero = hero
         meta.characterName = activeCharacter()?.name ?: ""
-        meta.skinId = sp.getString(rk(K_RUN_SKIN), SkinCatalog.defaultFor(hero).id)
+        meta.skinId = sp.getString(k(K_RUN_SKIN), SkinCatalog.defaultFor(hero).id)
             ?: SkinCatalog.defaultFor(hero).id
-        meta.runSeed = sp.getLong(rk(K_RUN_SEED), System.nanoTime())
-        meta.inkRank = sp.getInt(rk(K_RUN_INK), 0).coerceIn(0, MAX_MUTATION_GENERATION)
-        meta.immuneMemoryId = sp.getString(rk(K_RUN_MEMORY), preferredImmuneMemoryId)
+        meta.runSeed = sp.getLong(k(K_RUN_SEED), System.nanoTime())
+        meta.inkRank = sp.getInt(k(K_RUN_INK), 0).coerceIn(0, MAX_MUTATION_GENERATION)
+        meta.immuneMemoryId = sp.getString(k(K_RUN_MEMORY), preferredImmuneMemoryId)
             ?: ImmuneMemory.CLOTTING_BARRIER.id
         meta.invalidateStageCache()
-        meta.stageIndex = sp.getInt(rk(K_RUN_STAGE), 0).coerceIn(0, meta.stages().lastIndex)
-        meta.nodeId = sp.getInt(rk(K_RUN_NODE), 0)
+        meta.stageIndex = sp.getInt(k(K_RUN_STAGE), 0).coerceIn(0, meta.stages().lastIndex)
+        meta.nodeId = sp.getInt(k(K_RUN_NODE), 0)
         val stage = meta.stage()
         if (stage.nodes.none { it.id == meta.nodeId }) {
             meta.nodeId = stage.nodes.firstOrNull()?.id ?: 0
         }
-        meta.gold = sp.getInt(rk(K_RUN_GOLD), 30)
-        meta.goldEarnedThisRun = sp.getInt(rk(K_RUN_GOLD_EARNED), 0)
-        meta.weaponLevel = sp.getInt(rk(K_RUN_WPN), 0)
-        meta.armorLevel = sp.getInt(rk(K_RUN_ARM), 0)
-        meta.potions = sp.getInt(rk(K_RUN_POT), 1)
-        meta.potionsUsedThisRun = sp.getInt(rk(K_RUN_POT_USED), 0)
-        meta.level = sp.getInt(rk(K_RUN_LV), 1)
-        meta.xp = sp.getInt(rk(K_RUN_XP), 0)
+        meta.gold = sp.getInt(k(K_RUN_GOLD), 30)
+        meta.goldEarnedThisRun = sp.getInt(k(K_RUN_GOLD_EARNED), 0)
+        meta.weaponLevel = sp.getInt(k(K_RUN_WPN), 0)
+        meta.armorLevel = sp.getInt(k(K_RUN_ARM), 0)
+        meta.potions = sp.getInt(k(K_RUN_POT), 1)
+        meta.potionsUsedThisRun = sp.getInt(k(K_RUN_POT_USED), 0)
+        meta.level = sp.getInt(k(K_RUN_LV), 1)
+        meta.xp = sp.getInt(k(K_RUN_XP), 0)
         // 经验曲线由版本规则决定，不沿用旧存档里过小的门槛（曾导致一战满技能）。
         meta.xpToLevel = xpRequirementForLevel(meta.level)
-        meta.curHp = sp.getFloat(rk(K_RUN_HP), -1f)
-        meta.curMp = sp.getFloat(rk(K_RUN_MP), -1f)
+        meta.curHp = sp.getFloat(k(K_RUN_HP), -1f)
+        meta.curMp = sp.getFloat(k(K_RUN_MP), -1f)
         meta.passives.clear()
-        val pass = sp.getString(rk(K_RUN_PASSIVES), "") ?: ""
+        val pass = sp.getString(k(K_RUN_PASSIVES), "") ?: ""
         if (pass.isNotBlank()) {
             pass.split(",").forEach { name ->
                 try {
@@ -479,17 +496,17 @@ class ProgressStore(context: Context) {
             }
         }
         meta.coreInkRanks.clear()
-        val coreInks = sp.getString(rk(K_RUN_CORE_INKS), "") ?: ""
+        val coreInks = sp.getString(k(K_RUN_CORE_INKS), "") ?: ""
         meta.coreInkRanks.putAll(decodeCoreInkRanks(coreInks, meta.hero))
-        meta.visited = (sp.getString(rk(K_RUN_VISITED), "0") ?: "0")
+        meta.visited = (sp.getString(k(K_RUN_VISITED), "0") ?: "0")
             .split(",")
             .mapNotNull { it.toIntOrNull() }
             .toMutableSet()
         if (meta.visited.isEmpty()) meta.visited.add(meta.nodeId)
-        meta.kills = sp.getInt(rk(K_RUN_KILLS), 0)
-        meta.roomsCleared = sp.getInt(rk(K_RUN_ROOMS), 0)
+        meta.kills = sp.getInt(k(K_RUN_KILLS), 0)
+        meta.roomsCleared = sp.getInt(k(K_RUN_ROOMS), 0)
         meta.journal.clear()
-        val j = sp.getString(rk(K_RUN_JOURNAL), "") ?: ""
+        val j = sp.getString(k(K_RUN_JOURNAL), "") ?: ""
         if (j.isNotBlank()) meta.journal.addAll(j.split("\u0001").filter { it.isNotBlank() })
         meta.paused = false
         meta.storyQueue = emptyList()
@@ -503,31 +520,31 @@ class ProgressStore(context: Context) {
         meta.setAwakenedT = 0f
         meta.setAwakenedHapticPending = false
         meta.ownedWeapons.clear()
-        val wpn = sp.getString(rk(K_RUN_WEAPONS), "") ?: ""
+        val wpn = sp.getString(k(K_RUN_WEAPONS), "") ?: ""
         if (wpn.isNotBlank()) meta.ownedWeapons.addAll(wpn.split(",").filter { it.isNotBlank() })
         if (meta.ownedWeapons.isEmpty()) meta.ownedWeapons.add(WeaponCatalog.starter(hero).id)
-        meta.equippedWeaponId = sp.getString(rk(K_RUN_EQ), WeaponCatalog.starter(hero).id)
+        meta.equippedWeaponId = sp.getString(k(K_RUN_EQ), WeaponCatalog.starter(hero).id)
             ?: WeaponCatalog.starter(hero).id
         meta.ownedArmors.clear()
-        val arms = sp.getString(rk(K_RUN_ARMORS), "") ?: ""
+        val arms = sp.getString(k(K_RUN_ARMORS), "") ?: ""
         if (arms.isNotBlank()) meta.ownedArmors.addAll(arms.split(",").filter { it.isNotBlank() })
         if (meta.ownedArmors.isEmpty()) meta.ownedArmors.add("a_cloth")
-        meta.equippedArmorId = sp.getString(rk(K_RUN_EQ_ARM), "a_cloth") ?: "a_cloth"
+        meta.equippedArmorId = sp.getString(k(K_RUN_EQ_ARM), "a_cloth") ?: "a_cloth"
         meta.ownedRings.clear()
-        val rings = sp.getString(rk(K_RUN_RINGS), "") ?: ""
+        val rings = sp.getString(k(K_RUN_RINGS), "") ?: ""
         if (rings.isNotBlank()) meta.ownedRings.addAll(rings.split(",").filter { it.isNotBlank() })
-        meta.equippedRingId = sp.getString(rk(K_RUN_EQ_RING), "") ?: ""
+        meta.equippedRingId = sp.getString(k(K_RUN_EQ_RING), "") ?: ""
         meta.ownedBoots.clear()
-        val boots = sp.getString(rk(K_RUN_BOOTS), "") ?: ""
+        val boots = sp.getString(k(K_RUN_BOOTS), "") ?: ""
         if (boots.isNotBlank()) meta.ownedBoots.addAll(boots.split(",").filter { it.isNotBlank() })
         if (meta.ownedBoots.isEmpty()) meta.ownedBoots.add("b_cloth")
-        meta.equippedBootsId = sp.getString(rk(K_RUN_EQ_BOOTS), "b_cloth") ?: "b_cloth"
-        meta.skillPowerBonus = sp.getFloat(rk(K_RUN_SKILL_POW), 0f)
+        meta.equippedBootsId = sp.getString(k(K_RUN_EQ_BOOTS), "b_cloth") ?: "b_cloth"
+        meta.skillPowerBonus = sp.getFloat(k(K_RUN_SKILL_POW), 0f)
         meta.ownedTomes.clear()
-        val tms = sp.getString(rk(K_RUN_TOMES), "") ?: ""
+        val tms = sp.getString(k(K_RUN_TOMES), "") ?: ""
         if (tms.isNotBlank()) meta.ownedTomes.addAll(tms.split(",").filter { it.isNotBlank() })
         meta.bag.clear()
-        val bagStr = sp.getString(rk(K_RUN_BAG), "") ?: ""
+        val bagStr = sp.getString(k(K_RUN_BAG), "") ?: ""
         if (bagStr.isNotBlank()) {
             bagStr.split(",").forEach { pair ->
                 val parts = pair.split(":")
@@ -559,6 +576,7 @@ class ProgressStore(context: Context) {
 
     private fun clearActiveRun(ed: SharedPreferences.Editor): SharedPreferences.Editor {
         return ed.putBoolean(rk(K_RUN_ACTIVE), false)
+            .putBoolean(rk(CKPT + K_RUN_ACTIVE), false)
             .remove(rk(K_RUN_HERO))
             .remove(rk(K_RUN_NODE_NAME))
     }
@@ -589,6 +607,7 @@ class ProgressStore(context: Context) {
         private const val K_RUN_ARM = "run_arm"
         private const val K_RUN_POT = "run_pot"
     private const val K_RUN_POT_USED = "run_pot_used"
+    private const val CKPT = "ckpt_"
         private const val K_RUN_LV = "run_lv"
         private const val K_RUN_XP = "run_xp"
         private const val K_RUN_XP_NEED = "run_xp_need"

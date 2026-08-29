@@ -25,8 +25,8 @@ enum class HeroClass(
         "法师",
         "火冰雷爆星 · 五行法器",
         Color(0xFF60A5FA),
-        baseHp = 170f, baseMp = 150f, baseSpeed = 225f, baseAtk = 25f,
-        attackRange = 360f, attackInterval = 0.42f, style = AttackStyle.FIREBALL
+        baseHp = 190f, baseMp = 150f, baseSpeed = 225f, baseAtk = 30f,
+        attackRange = 360f, attackInterval = 0.38f, style = AttackStyle.FIREBALL
     ),
     TAOIST(
         "道士",
