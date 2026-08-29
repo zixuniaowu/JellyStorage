@@ -23,9 +23,9 @@ enum class WuXing(val display: String, val short: String, val color: Color) {
 }
 
 /** 克制 1.4x，被克 0.72x，同属/无关 1.0x */
+/** 克制 1.35x（+五行增幅）；被克不再惩罚——五行是加分题不是必修课 */
 fun wuxingDamageMul(attack: WuXing, defend: WuXing, amp: Float = 0f): Float = when {
-    attack.beats(defend) -> 1.42f + amp
-    defend.beats(attack) -> 0.72f
+    attack.beats(defend) -> 1.35f + amp
     else -> 1f
 }
 

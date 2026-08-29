@@ -336,6 +336,8 @@ class ArenaSim(
     var slashFx: Float = 0f
     var slashAngle: Float = 0f
     var slashWidth: Float = 1f
+    /** 战士普攻三连击拍：第 3 刀为重斩（更宽弧 + 击退） */
+    private var slashSwing = 0
     var healPulse: Float = 0f
     var playerInvuln: Float = 0f
         private set
@@ -1606,12 +1608,21 @@ class ArenaSim(
         // 仅极轻“压笔”，避免人像一跳一跳
         attackLunge = 0.22f
         val range = hero.attackRange * u * (1f + if (player.has(StatusType.RAGE)) 0.15f else 0f)
+        // 三连击拍：第 3 刀重斩——更宽弧、更高伤害、强击退
+        slashSwing = (slashSwing + 1) % 3
+        val heavy = slashSwing == 0
+        val effArc = if (heavy) arc * 1.35f else arc
         // 地上留一笔弧，不是光球
         leaveInkArc(player.x, player.y, ang, range * 0.92f, slashWidth)
-        // 亮色斩弧剪影 + 刃尖火花（叠在墨弧上）
-        slashArc(player.x, player.y, range * 0.72f, ang - arc, arc * 2f, 0.17f, 0xFFFFE3B8, 9f, spin = 0.5f)
-        shardBurst(player.x + cos(ang) * range * 0.7f, player.y + sin(ang) * range * 0.7f, 3, 0xFFFFC98A, 150f * u, 0.22f, 12f * u, ang, 1.1f, 4f)
-        val dmgMul = mul * (1f + player.powerOf(StatusType.RAGE)) *
+        // 亮色斩弧剪影 + 刃尖火花（叠在墨弧上；重斩更大更沉）
+        if (heavy) {
+            slashArc(player.x, player.y, range * 0.95f, ang - effArc, effArc * 2f, 0.24f, 0xFFFB923C, 14f, spin = 0.7f)
+            shardBurst(player.x + cos(ang) * range * 0.75f, player.y + sin(ang) * range * 0.75f, 6, 0xFFFB923C, 210f * u, 0.3f, 15f * u, ang, 1.3f, 5f)
+        } else {
+            slashArc(player.x, player.y, range * 0.72f, ang - effArc, effArc * 2f, 0.17f, 0xFFFFE3B8, 9f, spin = 0.5f)
+            shardBurst(player.x + cos(ang) * range * 0.7f, player.y + sin(ang) * range * 0.7f, 3, 0xFFFFC98A, 150f * u, 0.22f, 12f * u, ang, 1.1f, 4f)
+        }
+        val dmgMul = mul * (if (heavy) 1.55f else 1f) * (1f + player.powerOf(StatusType.RAGE)) *
             (1f + min(0.55f, comboCount * mods.comboDmgPerStack))
         var hits = 0
         for (e in enemies) {
@@ -1624,14 +1635,19 @@ class ArenaSim(
             var da = a - ang
             while (da > PI) da -= (2 * PI).toFloat()
             while (da < -PI) da += (2 * PI).toFloat()
-            if (kotlin.math.abs(da) < arc) {
+            if (kotlin.math.abs(da) < effArc) {
                 damageEnemy(e, player.atk * dmgMul, heavy = hits == 0)
-                // 极轻粘滞，别把敌人拽得乱跳
+                // 极轻粘滞，别把敌人拽得乱跳；重斩则强击退
                 val dd = dist.coerceAtLeast(1f)
-                e.x -= dx / dd * 2.5f * u
-                e.y -= dy / dd * 2.5f * u
+                val push = if (heavy) 16f * u else 2.5f * u
+                e.x -= dx / dd * push
+                e.y -= dy / dd * push
                 hits++
             }
+        }
+        if (heavy && hits > 0) {
+            float(player.x, player.y - 60f, "重斩!", 251, 146, 60, 1.1f)
+            shake = max(shake, 0.14f)
         }
         if (hits == 0) {
             burst(player.x + cos(ang) * range * 0.6f, player.y + sin(ang) * range * 0.6f, 4, 0x44FFFFFF, 40f * u, 0.2f)
@@ -1729,7 +1745,7 @@ class ArenaSim(
             Shot(
                 player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
                 cos(ang) * sp, sin(ang) * sp, 1.7f, 15f * u, dmg, true, 1, st, stT, stP,
-                splash = 52f * u
+                splash = 62f * u
             )
         )
     }
@@ -1742,7 +1758,7 @@ class ArenaSim(
             Shot(
                 player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
                 cos(ang) * sp, sin(ang) * sp, 1.7f, 15f * u, dmg, true, 1, st, stT, stP,
-                splash = 52f * u
+                splash = 62f * u
             )
         )
     }
@@ -1755,13 +1771,15 @@ class ArenaSim(
         shardBurst(player.x, player.y, 5, 0xFFD9F99D, 190f * u, 0.3f, 12f * u, ang, 1.1f, 4f)
         for (k in -1..1) {
             val a = ang + k * 0.22f
+            // 中间符带迟缓：三符各有存在感
             shots.add(
                 Shot(
                     player.x + cos(a) * player.radius,
                     player.y + sin(a) * player.radius,
                     cos(a) * sp, sin(a) * sp, 1.85f, 11f * u,
                     player.atk * (0.72f + if (k == 0) 0.18f else 0f),
-                    true, 2, null, 0f, 0f
+                    true, 2,
+                    if (k == 0) StatusType.SLOW else null, 1.6f, 0.7f
                 )
             )
         }
