@@ -1308,13 +1308,6 @@ private fun settleChallenges(
     for (c in battleChallengesReached(outcome, progress.completedChallenges())) {
         if (progress.completeChallenge(c.id)) newly.add(c)
     }
-    if (bossBattle &&
-        progress.recordBossElementKill(meta.playerElement()) &&
-        progress.bossElementsKilled().size >= WuXing.entries.size &&
-        progress.completeChallenge(CodexChallenge.BOSS_ALL_ELEMENTS.id)
-    ) {
-        newly.add(CodexChallenge.BOSS_ALL_ELEMENTS)
-    }
     newly.forEach { c ->
         meta.gold += c.rewardGold
         meta.goldEarnedThisRun += c.rewardGold
@@ -2648,7 +2641,7 @@ private fun DrawScope.drawHowTo(tm: TextMeasurer, w: Float, h: Float) {
         "4. 战斗：左摇杆 · 右技能；先击破带疗/鼓/卫徽记的战术怪",
         "5. 清除五个器官后病毒进入下一代；装备与等级重置",
         "6. 免疫记忆永久保留；每轮只带一种，开局前可切换",
-        "7. 五行：火克金·金克木·木克土·土克水·水克火",
+        "7. 武器元素只影响弹色与手感，放心用喜欢的武器",
         "8. 免疫核心可重复升阶，会改变冲锋/冰环/毒雾等技能机制",
         "9. 过关自动存档；阵亡后免疫记忆带你从本章重新出击",
         "目标：净化五器官 · 重构装备与技能 · 挑战更高变异代"
@@ -2903,12 +2896,6 @@ private fun DrawScope.drawCodex(meta: RunMeta, progress: ProgressStore, tm: Text
             title(tm, if (ok) "✓ ${c.title}" else c.title, previewCx, h * 0.28f, if (ok) Color(0xFF86EFAC) else Color.White, 18.sp)
             title(tm, c.desc, previewCx, h * 0.36f, Color(0xFFE2E8F0), 12.sp)
             title(tm, "奖励 +${c.rewardGold}金（当局立即生效）", previewCx, h * 0.43f, Color(0xFFFBBF24), 12.sp)
-            if (c == CodexChallenge.BOSS_ALL_ELEMENTS) {
-                val killed = progress.bossElementsKilled()
-                    .mapNotNull { runCatching { WuXing.valueOf(it) }.getOrNull() }
-                    .toSet()
-                title(tm, "进度 ${bossElementProgressLine(killed)}", previewCx, h * 0.50f, Color(0xFF38BDF8), 12.sp)
-            }
             title(tm, "挑战奖励进入当局金币，死亡即失效——趁热用掉", previewCx, h * 0.62f, Color(0xFF94A3B8), 10.sp)
             title(tm, "生涯挑战 · 达成后自动记录", previewCx, h * 0.68f, Color(0xFF5C4033), 10.sp)
         }
@@ -4002,6 +3989,10 @@ private fun DrawScope.drawArena(
         val px0 = wx(s.x - s.vx * 0.03f)
         val py0 = wy(s.y - s.vy * 0.03f)
         drawInkProjectile(sx, sy, px0, py0, wr(s.r) * 1.15f, s.style)
+        // 武器五行色光晕：每把武器的基础弹带自身颜色
+        if (s.tint != 0) {
+            drawCircle(Color(s.tint).copy(alpha = 0.45f), wr(s.r) * 1.5f, Offset(sx, sy))
+        }
         if (s.style == 6) {
             // 陨星：墨线从上方落下
             drawLine(Color(0x662C1810), Offset(sx, sy - wr(48f)), Offset(sx, sy), 3f, StrokeCap.Round)

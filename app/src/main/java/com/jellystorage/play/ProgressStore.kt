@@ -396,18 +396,6 @@ class ProgressStore(context: Context) {
         return true
     }
 
-    /** 已用 Boss 击杀覆盖的五行（存枚举名） */
-    fun bossElementsKilled(): Set<String> =
-        (sp.getString(K_BOSS_ELEMENTS, "") ?: "").split(",").filter { it.isNotBlank() }.toSet()
-
-    /** 记录一次 Boss 五行击杀；返回 true 表示该五行为首次覆盖 */
-    fun recordBossElementKill(element: WuXing): Boolean {
-        val set = bossElementsKilled().toMutableSet()
-        if (!set.add(element.name)) return false
-        sp.edit().putString(K_BOSS_ELEMENTS, set.joinToString(",")).apply()
-        return true
-    }
-
     // ---- 职业试炼（按职业累计，解锁备用皮肤） ----
 
     fun trialStats(hero: HeroClass): TrialStats =
@@ -644,7 +632,6 @@ class ProgressStore(context: Context) {
     private const val K_INK_PREF = "ink_pref"
     private const val K_IMMUNE_MEMORY = "immune_memory"
     private const val K_CHALLENGES = "challenges_done"
-    private const val K_BOSS_ELEMENTS = "boss_elements"
         private const val K_RUN_SEED = "run_seed"
         private const val K_RUN_INK = "run_ink"
         private const val K_RUN_MEMORY = "run_memory"

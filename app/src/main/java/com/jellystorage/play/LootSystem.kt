@@ -29,6 +29,15 @@ fun wuxingDamageMul(attack: WuXing, defend: WuXing, amp: Float = 0f): Float = wh
     else -> 1f
 }
 
+/** 纯 ARGB 色（弹体着色用，避免模拟层依赖 Compose） */
+fun WuXing.argb(): Int = when (this) {
+    WuXing.METAL -> 0xFFFBBF24.toInt()
+    WuXing.WOOD -> 0xFF4ADE80.toInt()
+    WuXing.WATER -> 0xFF38BDF8.toInt()
+    WuXing.FIRE -> 0xFFEF4444.toInt()
+    WuXing.EARTH -> 0xFFD97706.toInt()
+}
+
 /** 能克制 [this] 的属性（打这种关推荐带什么） 火克金、金克木… */
 fun WuXing.beatenBy(): WuXing = when (this) {
     WuXing.METAL -> WuXing.FIRE

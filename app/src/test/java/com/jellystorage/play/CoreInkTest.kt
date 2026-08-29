@@ -49,10 +49,11 @@ class CoreInkTest {
     }
 
     @Test
-    fun `mage twin frost schedules a second readable pulse`() {
+    fun `mage twin frost shield persists and scales with rank`() {
         val sim = simFor(HeroClass.MAGE, CoreInkId.MAGE_TWIN_FROST, rank = 2)
         sim.update(0.05f, 0f, 0f, basic = false, s1 = true, s2 = false)
-        assertTrue(sim.echoPulses.any { it.glyph == "霜" && it.life > 0f })
+        // rank2: 5s + 2*0.6s = 6.2s，减去一帧
+        assertTrue(sim.manaShieldT > 5.5f, "manaShieldT = ${sim.manaShieldT}")
     }
 
     @Test

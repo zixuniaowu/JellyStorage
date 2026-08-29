@@ -47,17 +47,10 @@ class CodexChallengeTest {
     }
 
     @Test
-    fun `五行进度行格式稳定`() {
-        assertEquals("金水 2/5", bossElementProgressLine(setOf(WuXing.METAL, WuXing.WATER)))
-        assertEquals(" 0/5", bossElementProgressLine(emptySet()))
-        assertEquals(5, WuXing.entries.size)
-    }
-
-    @Test
     fun `奖励金额为正且互不相同档位`() {
         val rewards = CodexChallenge.entries.map { it.rewardGold }
         assertTrue(rewards.all { it > 0 })
         assertEquals(rewards.size, rewards.toSet().size)
-        assertEquals(6, CodexChallenge.entries.size)
+        assertEquals(5, CodexChallenge.entries.size)
     }
 }

@@ -21,8 +21,8 @@ enum class CoreInkId(
         "旋风斩后追加延迟外环；升阶提高回锋伤害。", 0xFFFB923C
     ),
     MAGE_TWIN_FROST(
-        HeroClass.MAGE, "双生寒月", "霜", "冰环",
-        "冰环短暂延迟后再次脉冲；升阶提高冻结与伤害。", 0xFF38BDF8
+        HeroClass.MAGE, "双生寒月", "霜", "魔法盾",
+        "魔法盾持续期间，击中你的敌人会被寒霜迟缓；升阶提高护盾强度与持续时间。", 0xFF38BDF8
     ),
     MAGE_STORM_BRANCH(
         HeroClass.MAGE, "雷枝万象", "枝", "链雷",

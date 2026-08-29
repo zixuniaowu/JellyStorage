@@ -88,7 +88,9 @@ data class Shot(
     var statusT: Float = 0f,
     var statusPow: Float = 0f,
     /** fireball splash radius (world units) */
-    var splash: Float = 0f
+    var splash: Float = 0f,
+    /** 武器五行色覆盖（0 = 按弹种默认色，ARGB int） */
+    var tint: Int = 0
 )
 
 /** Persistent field: poison mist / taoist array */
@@ -338,6 +340,9 @@ class ArenaSim(
     var slashWidth: Float = 1f
     /** 战士普攻三连击拍：第 3 刀为重斩（更宽弧 + 击退） */
     private var slashSwing = 0
+    /** 法师魔法盾剩余时间：盾期间受击迟缓来敌 */
+    var manaShieldT: Float = 0f
+        private set
     var healPulse: Float = 0f
     var playerInvuln: Float = 0f
         private set
@@ -1365,7 +1370,7 @@ class ArenaSim(
                         twinFireball(target, player.atk * 1.15f * sm * 0.85f, StatusType.BURN, 2.5f, 8f * burnAmp)
                     }
                 }
-                1 -> iceRing()
+                1 -> manaShield()
                 2 -> chainLightning(target)
                 3 -> fireBlast(target, sm)
                 4 -> castInkHorse(sm)
@@ -1745,7 +1750,7 @@ class ArenaSim(
             Shot(
                 player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
                 cos(ang) * sp, sin(ang) * sp, 1.7f, 15f * u, dmg, true, 1, st, stT, stP,
-                splash = 62f * u
+                splash = 62f * u, tint = gear.element.argb()
             )
         )
     }
@@ -1758,9 +1763,24 @@ class ArenaSim(
             Shot(
                 player.x + cos(ang) * player.radius, player.y + sin(ang) * player.radius,
                 cos(ang) * sp, sin(ang) * sp, 1.7f, 15f * u, dmg, true, 1, st, stT, stP,
-                splash = 62f * u
+                splash = 62f * u, tint = gear.element.argb()
             )
         )
+    }
+
+    /** Mage S1: 魔法盾 — 吸收伤害的法盾；盾期间击中你的敌人被寒霜迟缓。 */
+    private fun manaShield() {
+        val rank = coreRank(CoreInkId.MAGE_TWIN_FROST)
+        val dur = 5f + rank * 0.6f
+        player.applyStatus(StatusType.SHIELD, dur, player.maxHp * (0.32f + rank * 0.05f))
+        manaShieldT = dur
+        float(player.x, player.y - 44f, "魔法盾!", 125, 211, 252, 1.25f)
+        rings.add(RingFx(player.x, player.y, player.radius * 2.8f, 0.55f, 0.55f, 0xFF7DD3FC))
+        rings.add(RingFx(player.x, player.y, player.radius * 1.8f, 0.5f, 0.5f, 0xFFE0F2FE))
+        burst(player.x, player.y, 12, 0xFF7DD3FC, 120f * u, 0.4f)
+        shardBurst(player.x, player.y, 6, 0xFFBAE6FD, 150f * u, 0.45f, 13f * u)
+        if (rank > 0) float(player.x, player.y - 62f, "霜盾·${rank}阶", 125, 211, 252, 0.95f)
+        shake = max(shake, 0.12f)
     }
 
     /** Taoist basic: 3 talismans in a fan (not a single mage bolt). */
@@ -1779,7 +1799,8 @@ class ArenaSim(
                     cos(a) * sp, sin(a) * sp, 1.85f, 11f * u,
                     player.atk * (0.72f + if (k == 0) 0.18f else 0f),
                     true, 2,
-                    if (k == 0) StatusType.SLOW else null, 1.6f, 0.7f
+                    if (k == 0) StatusType.SLOW else null, 1.6f, 0.7f,
+                    tint = gear.element.argb()
                 )
             )
         }
@@ -1845,45 +1866,7 @@ class ArenaSim(
         impactFlash = max(impactFlash, 0.2f)
     }
 
-    private fun iceRing() {
-        val r = 145f * u
-        rings.add(RingFx(player.x, player.y, r, 0.65f, 0.65f, 0xFF7DD3FC))
-        rings.add(RingFx(player.x, player.y, r * 0.7f, 0.55f, 0.55f, 0xFFE0F2FE))
-        rings.add(RingFx(player.x, player.y, r * 0.4f, 0.45f, 0.45f, 0xFFBAE6FD))
-        var frozen = 0
-        for (e in enemies) {
-            if (e.dead) continue
-            if (dist(player.x, player.y, e.x, e.y) <= r + e.radius) {
-                damageEnemy(e, player.atk * 1.3f)
-                // hard freeze: cannot move/act
-                e.applyStatus(StatusType.FREEZE, 2.2f, 1f)
-                e.applyStatus(StatusType.SLOW, 3.5f, 0.7f)
-                e.vx = 0f
-                e.vy = 0f
-                e.chargeVx = 0f
-                e.chargeVy = 0f
-                e.windup = 0f
-                float(e.x, e.y - e.radius - 8f, "冻结!", 125, 211, 252, 1.15f)
-                burst(e.x, e.y, 8, 0xFF7DD3FC, 80f * u, 0.35f)
-                // 冰晶沿冻结方向迸裂
-                val ea = atan2(e.y - player.y, e.x - player.x)
-                shardBurst(e.x, e.y, 4, 0xFFBAE6FD, 200f * u, 0.42f, 15f * u, ea, 1.4f, 4f)
-                frozen++
-            }
-        }
-        float(player.x, player.y - 44f, "冰环 · 冻结$frozen", 125, 211, 252, 1.2f)
-        val frostRank = coreRank(CoreInkId.MAGE_TWIN_FROST)
-        if (frostRank > 0) {
-            scheduleEcho(
-                player.x, player.y, 0.56f, r * 1.06f,
-                player.atk * (0.42f + frostRank * 0.14f),
-                0xFF7DD3FC, "霜", "寒月再临",
-                StatusType.FREEZE, 0.55f + frostRank * 0.16f, 1f
-            )
-        }
-        burst(player.x, player.y, 22, 0xFF7DD3FC, 160f * u, 0.45f)
-        shake = max(shake, 0.22f)
-    }
+    /** 冰环已被魔法盾接替（S1）。原冰环特效元素（寒霜碎片）由魔法盾沿用。 */
 
     /** Mage ultimate: meteors rain near target / screen. */
     private fun meteorRain(target: Actor?) {
@@ -2001,6 +1984,13 @@ class ArenaSim(
     }
 
     private fun updateSlashFx(d: Float) {
+        if (manaShieldT > 0f) {
+            manaShieldT -= d
+            // 盾期微光脉冲
+            if ((manaShieldT * 2.2f).toInt() != ((manaShieldT + d) * 2.2f).toInt()) {
+                rings.add(RingFx(player.x, player.y, player.radius * 2.3f, 0.42f, 0.42f, 0xFF7DD3FC))
+            }
+        }
         var i = 0
         while (i < shards.size) {
             val s = shards[i]
@@ -2715,10 +2705,19 @@ class ArenaSim(
         }
     }
 
+    /** 冰环已由魔法盾接替 S1（2026-08 平衡迭代）。 */
     private fun contactHit(e: Actor, raw: Float) {
         val dealt = damagePlayer(raw)
-        if (dealt > 0f && player.has(StatusType.REFLECT)) {
-            damageEnemy(e, dealt * player.powerOf(StatusType.REFLECT).coerceAtLeast(0.2f))
+        if (dealt > 0f) {
+            if (player.has(StatusType.REFLECT)) {
+                damageEnemy(e, dealt * player.powerOf(StatusType.REFLECT).coerceAtLeast(0.2f))
+            }
+            // 魔法盾反制：盾期间咬到你的敌人被寒霜迟缓
+            if (manaShieldT > 0f) {
+                e.applyStatus(StatusType.SLOW, 2.5f, 0.5f)
+                float(e.x, e.y - e.radius - 6f, "缓", 125, 211, 252, 0.9f)
+                shardBurst(e.x, e.y, 3, 0xFFBAE6FD, 160f * u, 0.25f, 11f * u)
+            }
         }
         // spike / elite thorns when they bite you
         if (dealt > 0f && e.thorns > 0f) {
@@ -2938,9 +2937,19 @@ class ArenaSim(
         var dmg = max(1f, raw)
         if (frenzyT > 0f) dmg *= 1.22f
         if (rageT > 0f && rageStacks > 0) dmg *= 1f + rageStacks * 0.03f
-        // 五行相克（共鸣武器提高克制）
-        val wxMul = wuxingDamageMul(playerElement, e.element, wuxingAmp)
+        // 五行已移除玩法惩罚：共鸣武器改为纯伤害增幅
+        val wxMul = 1f + wuxingAmp
         dmg *= wxMul
+        // 命中微反馈：每次命中都有白瞬环（打击感的基线）
+        if (rings.size < 26) {
+            rings.add(
+                RingFx(
+                    e.x + (prng.nextFloat() - 0.5f) * 12f * u,
+                    e.y - e.radius * 0.4f + (prng.nextFloat() - 0.5f) * 8f * u,
+                    e.radius * 1.5f, 0.13f, 0.13f, 0xFFFFF7ED
+                )
+            )
+        }
         if (mods.eliteBonusDmg > 0f && (e.elite || e.ai == EnemyAi.BOSS ||
                 e.kind == EnemyKind.BOSS_SLIME || e.kind == EnemyKind.BOSS_ORE)
         ) {

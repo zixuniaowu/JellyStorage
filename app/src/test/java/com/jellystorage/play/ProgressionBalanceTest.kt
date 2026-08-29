@@ -22,7 +22,9 @@ class ProgressionBalanceTest {
     @Test
     fun `五个技能分布在多个战斗节点解锁`() {
         for (hero in HeroClass.entries) {
-            assertEquals(listOf(1, 2, 4, 6, 8), skillsFor(hero).map { it.unlockLevel })
+            // 法师 S1 魔法盾 1 级即解锁（前期保命）
+            val expected = if (hero == HeroClass.MAGE) listOf(1, 1, 4, 6, 8) else listOf(1, 2, 4, 6, 8)
+            assertEquals(expected, skillsFor(hero).map { it.unlockLevel })
         }
     }
 

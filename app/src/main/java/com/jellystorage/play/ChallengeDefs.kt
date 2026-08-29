@@ -14,8 +14,7 @@ enum class CodexChallenge(
     SPEED_48("speed_48", "神速清场", "单场战斗 48 秒内清场", 80),
     FLAWLESS("flawless", "完美无伤", "单场战斗胜利且未受任何伤害", 100),
     GRADE_S("grade_s", "登峰造极", "单场战斗获得 S 评价", 120),
-    NO_POTION_BOSS("no_potion_boss", "点药不沾", "本次远征未用药水击败章节 Boss", 150),
-    BOSS_ALL_ELEMENTS("boss_all_elements", "五行俱全", "以五种不同五行各击败一名章节 Boss", 200);
+    NO_POTION_BOSS("no_potion_boss", "点药不沾", "本次远征未用药水击败章节 Boss", 150);
 
     companion object {
         fun byId(id: String): CodexChallenge? = entries.firstOrNull { it.id == id }
@@ -44,10 +43,4 @@ fun battleChallengesReached(outcome: BattleOutcome, alreadyDone: Set<String>): L
     add(CodexChallenge.GRADE_S, outcome.grade == "S")
     add(CodexChallenge.NO_POTION_BOSS, outcome.bossBattle && outcome.potionsUsed <= 0)
     return reached
-}
-
-/** 五行 Boss 击杀进度行，如「金木水 3/5」；短字与数字在日文下通用 */
-fun bossElementProgressLine(killed: Set<WuXing>): String {
-    val shorts = WuXing.entries.filter { it in killed }.joinToString("") { it.short }
-    return "$shorts ${killed.size}/${WuXing.entries.size}"
 }
