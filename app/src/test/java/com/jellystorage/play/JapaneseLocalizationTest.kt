@@ -49,6 +49,29 @@ class JapaneseLocalizationTest {
     }
 
     @Test
+    fun multiLineBodiesTranslateAsWholeForLineRendering() {
+        // 渲染层先整串翻译再拆行；若映射缺失会回落中文（旧 bug：先拆行导致整串键永不匹配）
+        GameI18n.language = GameLanguage.JAPANESE
+        val multiLine = mutableListOf<String>()
+        listOf("merchant", "stele", "bard", "archive", "inkwell", "spirit_forge", "other").forEach { id ->
+            multiLine += StoryBook.eventScript(id).second
+        }
+        multiLine += listOf(
+            "将覆盖当前存档进度，无法恢复。\n确认后从第一章重新出发。",
+            "使用今日固定变异种子出击（全天相同）。\n会覆盖当前存档，感染特征见标题左下。",
+            "角色与其存档将永久删除。\n此操作不可撤销。",
+            "本局结束，进度写入生涯统计。\n可在标题重新出征。"
+        )
+        multiLine.distinct().forEach { body ->
+            val ja = GameI18n.tr(body)
+            assertTrue("multiline body not translated: $body", ja != body)
+            ja.lines().forEach { line ->
+                assertTrue("translated line still contains Chinese comma: $line", '，' !in line)
+            }
+        }
+    }
+
+    @Test
     fun releaseContentHasNoSimplifiedChineseLeakage() {
         GameI18n.language = GameLanguage.JAPANESE
         val source = mutableListOf<String>()

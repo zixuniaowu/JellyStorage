@@ -1114,7 +1114,8 @@ private fun DrawScope.drawConfirmLayer(tm: TextMeasurer, w: Float, h: Float, kin
         else -> "确认？" to "请确认操作"
     }
     title(tm, titleText, w * 0.5f, h * 0.34f, Color(0xFFFDE68A), 20.sp)
-    body.lines().forEachIndexed { i, line ->
+    // 多行文案必须整串翻译后再拆行：映射表的键含换行，先拆行会导致片段匹配失败回落中文
+    GameI18n.tr(body).lines().forEachIndexed { i, line ->
         title(tm, line, w * 0.5f, h * 0.44f + i * h * 0.055f, Color(0xFFE2E8F0), 14.sp)
     }
     drawRoundRect(Color(0xFF334155), Offset(w * 0.12f, h * 0.62f), Size(w * 0.34f, h * 0.11f), CornerRadius(12f))
@@ -2947,9 +2948,12 @@ private fun DrawScope.drawResult(meta: RunMeta, tm: TextMeasurer, w: Float, h: F
     val titleCol = if (cycleCleared) Color(0xFFBBF7D0) else Color(0xFFFECACA)
     title(tm, meta.resultTitle, w * 0.5f, h * 0.07f, titleCol, 24.sp)
     drawParchmentPanel(w * 0.1f, h * 0.18f, w * 0.8f, h * 0.36f)
-    meta.resultBody.lines().take(6).forEachIndexed { i, line ->
-        val c = if (line.contains("已写入本地")) Color(0xFF3F6212) else Color(0xFF2C1810)
-        title(tm, line, w * 0.5f, h * 0.20f + i * h * 0.045f, c, 13.sp)
+    // 整串翻译后按行渲染；颜色探针在原文上做（译文行结构一致）
+    val translatedResult = GameI18n.tr(meta.resultBody)
+    meta.resultBody.lines().take(6).forEachIndexed { i, raw ->
+        val c = if (raw.contains("已写入本地")) Color(0xFF3F6212) else Color(0xFF2C1810)
+        val shown = translatedResult.lines().getOrElse(i) { raw }
+        title(tm, shown, w * 0.5f, h * 0.20f + i * h * 0.045f, c, 13.sp)
     }
     title(
         tm,
@@ -3173,11 +3177,12 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
         drawRect(Color(0x88000000), size = Size(w, h))
         drawParchmentPanel(w * 0.12f, h * 0.16f, w * 0.76f, h * 0.66f, radius = 18f, strokeCol = Color(0xCCB91C1C))
         title(tm, meta.eventTitle, w * 0.5f, h * 0.19f, Color(0xFFB91C1C), 20.sp)
-        val bodyLines = meta.eventBody.replace('\n', '｜').split('｜').flatMap { line ->
+        // 整串翻译后再拆行（键含换行，先拆会回落中文）；长行断句兼容中日标点
+        val bodyLines = GameI18n.tr(meta.eventBody).replace('\n', '｜').split('｜').flatMap { line ->
             if (line.length <= 22) listOf(line) else {
                 val mid = line.length / 2
-                val sp = line.indexOf('，', mid - 4).takeIf { it > 0 }
-                    ?: line.indexOf('。', mid - 4).takeIf { it > 0 } ?: mid
+                val sp = line.indexOfAny(charArrayOf('，', '。', '、'), (mid - 4).coerceAtLeast(0)).takeIf { it > 0 }
+                    ?: mid
                 listOf(line.substring(0, sp + 1).trim(), line.substring(sp + 1).trim()).filter { it.isNotEmpty() }
             }
         }.take(5)
