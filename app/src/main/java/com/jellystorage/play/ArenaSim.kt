@@ -1385,14 +1385,14 @@ class ArenaSim(
     private fun fireBlast(target: Actor?, sm: Float) {
         val tx = target?.x ?: (player.x + player.facing * 200f * u)
         val ty = target?.y ?: player.y
-        rings.add(RingFx(tx, ty, 90f * u, 0.5f, 0.5f, 0xFFFF6B35))
-        rings.add(RingFx(tx, ty, 50f * u, 0.45f, 0.45f, 0xFFFBBF24))
-        burst(tx, ty, 24, 0xFFFF6B35, 220f * u, 0.5f)
+        rings.add(RingFx(tx, ty, 110f * u, 0.5f, 0.5f, 0xFFFF6B35))
+        rings.add(RingFx(tx, ty, 60f * u, 0.45f, 0.45f, 0xFFFBBF24))
+        burst(tx, ty, 30, 0xFFFF6B35, 260f * u, 0.55f)
         for (e in enemies) {
             if (e.dead) continue
-            if (dist(tx, ty, e.x, e.y) <= 95f * u + e.radius) {
-                damageEnemy(e, player.atk * 1.45f * sm, heavy = true)
-                e.applyStatus(StatusType.BURN, 3.5f, 12f * burnAmp)
+            if (dist(tx, ty, e.x, e.y) <= 112f * u + e.radius) {
+                damageEnemy(e, player.atk * 2.3f * sm, heavy = true)
+                e.applyStatus(StatusType.BURN, 3.5f, 16f * burnAmp)
             }
         }
         float(tx, ty - 30f, "炎爆!", 255, 107, 53, 1.3f)
@@ -1478,12 +1478,12 @@ class ArenaSim(
         var prevX = player.x
         var prevY = player.y
         val branchRank = coreRank(CoreInkId.MAGE_STORM_BRANCH)
-        val maxHops = 5 + branchRank
+        val maxHops = 6 + branchRank
         val searchRange = (220f + branchRank * 28f) * u
         while (cur != null && hops < maxHops && hit.size < living.size) {
             hit.add(cur)
-            damageEnemy(cur, player.atk * (1.05f - hops * 0.08f), heavy = hops == 0)
-            cur.applyStatus(StatusType.VULN, 2.2f, 0.15f)
+            damageEnemy(cur, player.atk * (1.3f - hops * 0.06f), heavy = hops == 0)
+            cur.applyStatus(StatusType.VULN, 2.2f, 0.2f)
             // bolt visual as thin ring trail
             rings.add(RingFx(cur.x, cur.y, 28f * u, 0.28f, 0.28f, 0xFFA78BFA))
             burst(cur.x, cur.y, 6, 0xFFC4B5FD, 90f * u, 0.25f)
@@ -1786,9 +1786,9 @@ class ArenaSim(
         for (e in enemies) {
             if (e.dead) continue
             if (dist(player.x, player.y, e.x, e.y) <= r + e.radius) {
-                damageEnemy(e, player.atk * 0.85f)
+                damageEnemy(e, player.atk * 1.3f)
                 // hard freeze: cannot move/act
-                e.applyStatus(StatusType.FREEZE, 2.0f, 1f)
+                e.applyStatus(StatusType.FREEZE, 2.2f, 1f)
                 e.applyStatus(StatusType.SLOW, 3.5f, 0.7f)
                 e.vx = 0f
                 e.vy = 0f
@@ -1834,9 +1834,9 @@ class ArenaSim(
                     mx, my - 80f * u,
                     0f, 420f * u,
                     0.35f + i * 0.05f, 18f * u,
-                    player.atk * 1.15f, true, 6,
-                    StatusType.BURN, 2f, 10f * burnAmp,
-                    splash = 70f * u
+                    player.atk * 1.55f, true, 6,
+                    StatusType.BURN, 2f, 13f * burnAmp,
+                    splash = 78f * u
                 )
             )
             rings.add(RingFx(mx, my, 28f * u, 0.5f, 0.5f, 0xFFA78BFA))
