@@ -116,6 +116,29 @@ data class Drop(
 )
 data class FloatTxt(var x: Float, var y: Float, var text: String, var life: Float, var r: Int, var g: Int, var b: Int, var scale: Float = 1f)
 data class RingFx(var x: Float, var y: Float, var r: Float, var life: Float, var maxLife: Float, var color: Long)
+
+/** 墨锋碎片：定向飞散的锥形笔触（冰晶/火星/符纸屑/治愈灵粒共用） */
+data class ShardFx(
+    var x: Float, var y: Float,
+    var vx: Float, var vy: Float,
+    val angle: Float,
+    val len: Float,
+    var life: Float, val maxLife: Float,
+    val color: Long,
+    val width: Float
+)
+
+/** 笔锋斩弧：挥砍/旋风的剪影弧线，随生命淡出并收弧（绘制为粗圆头弧） */
+data class SlashArcFx(
+    val x: Float, val y: Float,
+    val r: Float,
+    val startAngle: Float,
+    val sweep: Float,
+    var life: Float, val maxLife: Float,
+    val color: Long,
+    val width: Float,
+    val spin: Float
+)
 data class SkillCastFx(
     var x: Float,
     var y: Float,
@@ -277,6 +300,8 @@ class ArenaSim(
     val rings = ArrayList<RingFx>(24)
     val skillCastsFx = ArrayList<SkillCastFx>(12)
     val bolts = ArrayList<BoltFx>(16)
+    val shards = ArrayList<ShardFx>(48)
+    val slashArcs = ArrayList<SlashArcFx>(12)
     val echoPulses = ArrayList<EchoPulseFx>(12)
     val bossHazards = ArrayList<BossHazard>(24)
     val particles = ArrayList<Particle>(128)
@@ -1370,6 +1395,10 @@ class ArenaSim(
             }
         }
         burst(player.x, player.y, 18, 0xFFFB923C, 200f * u, 0.4f)
+        // 旋风双弧：外弧顺时针、内弧逆时针的笔锋剪影 + 切向碎片
+        slashArc(player.x, player.y, 118f * u, prng.nextFloat() * 6.28318f, 6.28318f, 0.3f, 0xFFFB923C, 12f, spin = 5.5f)
+        slashArc(player.x, player.y, 86f * u, prng.nextFloat() * 6.28318f, 6.28318f, 0.34f, 0xFFFBBF24, 8f, spin = -6.5f)
+        shardBurst(player.x, player.y, 10, 0xFFFDBA74, 260f * u, 0.35f, 16f * u)
         val echoRank = coreRank(CoreInkId.WARRIOR_WHIRL_ECHO)
         if (echoRank > 0) {
             scheduleEcho(
@@ -1388,6 +1417,9 @@ class ArenaSim(
         rings.add(RingFx(tx, ty, 110f * u, 0.5f, 0.5f, 0xFFFF6B35))
         rings.add(RingFx(tx, ty, 60f * u, 0.45f, 0.45f, 0xFFFBBF24))
         burst(tx, ty, 30, 0xFFFF6B35, 260f * u, 0.55f)
+        // 爆心火星 + 余焰双层飞散
+        shardBurst(tx, ty, 14, 0xFFFF8C42, 340f * u, 0.5f, 20f * u)
+        shardBurst(tx, ty, 8, 0xFFFBBF24, 210f * u, 0.42f, 13f * u)
         for (e in enemies) {
             if (e.dead) continue
             if (dist(tx, ty, e.x, e.y) <= 112f * u + e.radius) {
@@ -1416,7 +1448,9 @@ class ArenaSim(
         val cx = focus?.x ?: player.x
         val cy = focus?.y ?: player.y
         rings.add(RingFx(cx, cy, 100f * u, 0.55f, 0.55f, 0xFFA78BFA))
-        float(cx, cy - 36f, "镇符!", 167, 139, 250, 1.25f)
+                float(cx, cy - 36f, "镇符!", 167, 139, 250, 1.25f)
+        // 镇印迸裂：紫墨向四周压出
+        shardBurst(cx, cy, 8, 0xFFC4B5FD, 250f * u, 0.4f, 15f * u)
         for (e in enemies) {
             if (e.dead) continue
             if (dist(cx, cy, e.x, e.y) <= 105f * u + e.radius) {
@@ -1487,6 +1521,12 @@ class ArenaSim(
             // bolt visual as thin ring trail
             rings.add(RingFx(cur.x, cur.y, 28f * u, 0.28f, 0.28f, 0xFFA78BFA))
             burst(cur.x, cur.y, 6, 0xFFC4B5FD, 90f * u, 0.25f)
+            // 落点电离碎片 + 随机分叉侧雷
+            shardBurst(cur.x, cur.y, 3, 0xFFC4B5FD, 210f * u, 0.24f, 12f * u)
+            val forkA = prng.nextFloat() * 6.28318f
+            bolts.add(
+                BoltFx(cur.x, cur.y, cur.x + cos(forkA) * 36f * u, cur.y + sin(forkA) * 36f * u, 0.18f, 0.18f, 0xFFC4B5FD)
+            )
             // fake line via mid rings
             val mx = (prevX + cur.x) * 0.5f
             val my = (prevY + cur.y) * 0.5f
@@ -1525,6 +1565,8 @@ class ArenaSim(
         healPulse = 0.9f
         rings.add(RingFx(player.x, player.y, player.radius * 3f, 0.55f, 0.55f, 0xFF4ADE80))
         rings.add(RingFx(player.x, player.y, player.radius * 2f, 0.5f, 0.5f, 0xFF86EFAC))
+        // 治愈灵粒：自体向上升起的绿色笔触
+        shardBurst(player.x, player.y, 9, 0xFF86EFAC, 110f * u, 0.62f, 13f * u, -1.5707964f, 1.3f, 5f)
         burst(player.x, player.y, 20, 0xFF86EFAC, 140f * u, 0.45f)
         float(player.x, player.y - 48f, "回春!", 74, 222, 128, 1.35f)
         float(player.x, player.y - 28f, "+${amount.toInt()}HP", 167, 243, 208, 1.1f)
@@ -1566,6 +1608,9 @@ class ArenaSim(
         val range = hero.attackRange * u * (1f + if (player.has(StatusType.RAGE)) 0.15f else 0f)
         // 地上留一笔弧，不是光球
         leaveInkArc(player.x, player.y, ang, range * 0.92f, slashWidth)
+        // 亮色斩弧剪影 + 刃尖火花（叠在墨弧上）
+        slashArc(player.x, player.y, range * 0.72f, ang - arc, arc * 2f, 0.17f, 0xFFFFE3B8, 9f, spin = 0.5f)
+        shardBurst(player.x + cos(ang) * range * 0.7f, player.y + sin(ang) * range * 0.7f, 3, 0xFFFFC98A, 150f * u, 0.22f, 12f * u, ang, 1.1f, 4f)
         val dmgMul = mul * (1f + player.powerOf(StatusType.RAGE)) *
             (1f + min(0.55f, comboCount * mods.comboDmgPerStack))
         var hits = 0
@@ -1639,6 +1684,9 @@ class ArenaSim(
         slashWidth = 1.2f
         attackLunge = 0.35f
         shake = max(shake, 0.16f)
+        // 冲锋笔触拖痕：起→终一条亮线 + 沿途碎片
+        bolts.add(BoltFx(startX, startY, player.x, player.y, 0.22f, 0.22f, 0xFFFFC98A))
+        shardBurst(player.x, player.y, 6, 0xFFFCA5A5, 200f * u, 0.3f, 13f * u, ang + 3.14159f, 1.2f, 4f)
         for (e in enemies) {
             if (e.dead) continue
             if (dist(player.x, player.y, e.x, e.y) < player.radius + e.radius + 48f * u) {
@@ -1703,6 +1751,8 @@ class ArenaSim(
     private fun talismanFan(target: Actor?) {
         val ang = aimAngle(target)
         val sp = 400f * u
+        // 撒符纸屑：随扇面方向飘散
+        shardBurst(player.x, player.y, 5, 0xFFD9F99D, 190f * u, 0.3f, 12f * u, ang, 1.1f, 4f)
         for (k in -1..1) {
             val a = ang + k * 0.22f
             shots.add(
@@ -1797,6 +1847,9 @@ class ArenaSim(
                 e.windup = 0f
                 float(e.x, e.y - e.radius - 8f, "冻结!", 125, 211, 252, 1.15f)
                 burst(e.x, e.y, 8, 0xFF7DD3FC, 80f * u, 0.35f)
+                // 冰晶沿冻结方向迸裂
+                val ea = atan2(e.y - player.y, e.x - player.x)
+                shardBurst(e.x, e.y, 4, 0xFFBAE6FD, 200f * u, 0.42f, 15f * u, ea, 1.4f, 4f)
                 frozen++
             }
         }
@@ -1840,6 +1893,9 @@ class ArenaSim(
                 )
             )
             rings.add(RingFx(mx, my, 28f * u, 0.5f, 0.5f, 0xFFA78BFA))
+            // 落点预警环：随陨星下落同步收束，命中即爆
+            val tele = 0.35f + i * 0.05f + 0.4f
+            rings.add(RingFx(mx, my, 76f * u, tele, tele, 0xFFFDBA74))
         }
     }
 
@@ -1897,7 +1953,61 @@ class ArenaSim(
         }
     }
 
+    /** 定向碎片飞散：angleBase+spread（弧度）决定扇形方向；不传 angleBase 则全向 */
+    private fun shardBurst(
+        x: Float, y: Float, n: Int, color: Long, speed: Float, life: Float, len: Float,
+        angleBase: Float = Float.NaN, spread: Float = 6.28318f, width: Float = 4f
+    ) {
+        for (i in 0 until n) {
+            if (shards.size > 90) return
+            val a = if (angleBase.isNaN()) prng.nextFloat() * 6.28318f
+            else angleBase + (prng.nextFloat() - 0.5f) * spread
+            val sp = speed * (0.5f + prng.nextFloat() * 0.8f)
+            shards.add(
+                ShardFx(
+                    x, y, cos(a) * sp, sin(a) * sp, a,
+                    len * (0.7f + prng.nextFloat() * 0.6f),
+                    life * (0.7f + prng.nextFloat() * 0.6f), life, color, width
+                )
+            )
+        }
+    }
+
+    /** 斩弧：startAngle 起 sweep 弧度；spin 为生命期内的追加旋转（旋风用） */
+    private fun slashArc(
+        x: Float, y: Float, r: Float, startAngle: Float, sweep: Float,
+        life: Float, color: Long, width: Float = 9f, spin: Float = 0f
+    ) {
+        if (slashArcs.size > 14) slashArcs.removeAt(0)
+        slashArcs.add(SlashArcFx(x, y, r, startAngle, sweep, life, life, color, width, spin))
+    }
+
+    private fun updateSlashFx(d: Float) {
+        var i = 0
+        while (i < shards.size) {
+            val s = shards[i]
+            s.life -= d
+            if (s.life <= 0f) {
+                shards.removeAt(i)
+                continue
+            }
+            s.x += s.vx * d
+            s.y += s.vy * d
+            val drag = (1f - 2.4f * d).coerceAtLeast(0f)
+            s.vx *= drag
+            s.vy *= drag
+            i++
+        }
+        var j = 0
+        while (j < slashArcs.size) {
+            val a = slashArcs[j]
+            a.life -= d
+            if (a.life <= 0f) slashArcs.removeAt(j) else j++
+        }
+    }
+
     private fun updateFields(d: Float) {
+        updateSlashFx(d)
         var i = 0
         while (i < fields.size) {
             val f = fields[i]

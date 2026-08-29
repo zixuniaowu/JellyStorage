@@ -3699,6 +3699,36 @@ private fun DrawScope.drawArena(
             style = Stroke(4f)
         )
     }
+    // 笔锋斩弧：外圈淡晕 + 内圈亮笔，随生命收弧（剪影感的关键）
+    for (a in sim.slashArcs) {
+        val alpha = (a.life / a.maxLife).coerceIn(0f, 1f)
+        val sweepDeg = a.sweep * (0.35f + 0.65f * alpha) * 57.29578f
+        val startDeg = (a.startAngle + a.spin * (1f - alpha)) * 57.29578f
+        val rad = wr(a.r)
+        val tl = Offset(wx(a.x) - rad, wy(a.y) - rad)
+        val sz = Size(rad * 2f, rad * 2f)
+        drawArc(
+            Color(a.color).copy(alpha = alpha * 0.26f), startDeg, sweepDeg, false, tl, sz,
+            style = Stroke(wr(a.width) * 2.4f, cap = StrokeCap.Round)
+        )
+        drawArc(
+            Color(a.color).copy(alpha = alpha * 0.9f), startDeg, sweepDeg, false, tl, sz,
+            style = Stroke(wr(a.width), cap = StrokeCap.Round)
+        )
+    }
+    // 墨锋碎片：锥形笔触，宽度随生命变细（水墨笔锋的飞白感）
+    for (s in sim.shards) {
+        val alpha = (s.life / s.maxLife).coerceIn(0f, 1f)
+        val tx = s.x - cos(s.angle) * s.len
+        val ty = s.y - sin(s.angle) * s.len
+        drawLine(
+            Color(s.color).copy(alpha = alpha * 0.9f),
+            Offset(wx(s.x), wy(s.y)),
+            Offset(wx(tx), wy(ty)),
+            wr(s.width) * (0.35f + alpha),
+            StrokeCap.Round
+        )
+    }
     // Real lightning strokes: segmented, bright core + colored bloom.
     for (bolt in sim.bolts) {
         val alpha = (bolt.life / bolt.maxLife).coerceIn(0f, 1f)
