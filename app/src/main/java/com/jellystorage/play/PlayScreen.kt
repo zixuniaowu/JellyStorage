@@ -754,10 +754,22 @@ fun PlayScreen(modifier: Modifier = Modifier) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                // 新手势开始（ACTION_DOWN = 此前物理上无任何手指在按）：
+                // 上一手势若被系统手势截胡吞掉 UP/CANCEL，残留的 joy/技能 id 全是幽灵——先清场再受理
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    releaseArenaTouches()
+                }
                 val index = event.actionIndex
                 press(event.getPointerId(index), Offset(event.getX(index), event.getY(index)))
             }
             MotionEvent.ACTION_MOVE -> {
+                // 幽灵摇杆即时检测：手势进行中事件流里已不含摇杆指针（UP 被吞）→ 立即释放，
+                // 不必等 30~60s 的兜底回收；下一次触摸马上能重新接管
+                val jId = arenaRawTouch.joyId
+                if (jId >= 0 && event.findPointerIndex(jId) < 0) {
+                    releaseArenaPointer(jId)
+                    arenaRawTouch.lastSeen.remove(jId)
+                }
                 val joyIndex = event.findPointerIndex(arenaRawTouch.joyId)
                 if (joyIndex >= 0) updateJoystick(Offset(event.getX(joyIndex), event.getY(joyIndex)))
             }
