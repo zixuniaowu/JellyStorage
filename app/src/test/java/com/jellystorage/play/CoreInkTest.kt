@@ -102,6 +102,32 @@ class CoreInkTest {
         assertTrue(seal.echoPulses.any { it.glyph == "镇" })
     }
 
+    @Test
+    fun `storm clears the whole screen including split newborns`() {
+        // 雷暴必须清完全场：4 只低血棘壳被劈死后裂变的芽孢体也要被余雷劈中
+        val sim = ArenaSim(
+            width = 1200f,
+            height = 700f,
+            hero = HeroClass.MAGE,
+            weaponLevel = 0,
+            armorLevel = 4,
+            passives = emptySet(),
+            startHp = 500f,
+            startMp = 300f,
+            waves = listOf(WaveDef(List(4) { WaveEnemy(EnemyKind.SPIKE_SLIME, EnemyAi.CHASE, 25f, 1f, 20f) })),
+            goldPerKill = 1,
+            heroLevel = 6
+        )
+        sim.enemies.forEachIndexed { i, e ->
+            e.x = 80f + i * 250f
+            e.y = 150f + (i % 2) * 350f
+        }
+        sim.update(0.05f, 0f, 0f, basic = false, s1 = false, s2 = true)
+        sim.update(0.05f, 0f, 0f, basic = false, s1 = false, s2 = false)
+        val alive = sim.enemies.count { !it.dead }
+        assertTrue(alive == 0, "storm left $alive enemies alive (split newborns must be struck by the follow-up sweep)")
+    }
+
     private fun simFor(hero: HeroClass, ink: CoreInkId, rank: Int): ArenaSim = ArenaSim(
         width = 900f,
         height = 650f,

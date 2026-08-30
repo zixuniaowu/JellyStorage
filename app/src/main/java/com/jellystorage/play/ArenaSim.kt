@@ -1629,7 +1629,24 @@ class ArenaSim(
                 .minByOrNull { dist(from.x, from.y, it.x, it.y) }
         }
         val branch = if (branchRank > 0) " · 雷枝${branchRank}阶" else ""
-        float(player.x, player.y - 44f, "天雷 · $hops 连$branch", 167, 139, 250, 1.35f)
+        // 余雷扫尾：循环清场直到全场无活敌（含裂变新生体），至多三轮防失控
+        var sweep = 0
+        var cleared = false
+        var struck = 0
+        while (!cleared && sweep < 3) {
+            sweep++
+            cleared = true
+            for (e2 in enemies.toList()) {
+                if (e2.dead || e2 in hit) continue
+                cleared = false
+                hit.add(e2)
+                bolts.add(BoltFx(e2.x, e2.y - 900f * u, e2.x, e2.y, 0.3f, 0.3f, 0xFFC4B5FD, width = 11f))
+                damageEnemy(e2, player.atk * 1.35f)
+                e2.applyStatus(StatusType.VULN, 2f, 0.15f)
+                struck++
+            }
+        }
+        float(player.x, player.y - 44f, "天雷 · ${hops + struck} 连$branch", 167, 139, 250, 1.35f)
         impactFlash = max(impactFlash, 0.35f)
         shake = max(shake, 0.45f)
     }

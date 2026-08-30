@@ -3719,13 +3719,25 @@ private fun DrawScope.drawArena(
         { x -> wx(x) }, { y -> wy(y) }, { r -> wr(r) }
     )
 
-    // 战场地形：免疫组织块（挡弹体、可绕行）
+    // 战场地形：灵力符阵结界（挡弹体、可绕行；旋转符文环随时间流转）
     for (o in sim.obstacles) {
         val ox = wx(o.x); val oy = wy(o.y); val or = wr(o.r)
-        drawCircle(Color(0xFF2C4638), or, Offset(ox, oy))
-        drawCircle(Color(0xFF3B5A48), or * 0.84f, Offset(ox - or * 0.08f, oy - or * 0.1f))
-        drawCircle(Color(0x24FFFFFF), or * 0.3f, Offset(ox - or * 0.26f, oy - or * 0.3f))
-        drawCircle(Color(0xFF16241D), or, Offset(ox, oy), style = Stroke(3f))
+        val spin = sim.time * 0.9f + o.x * 0.01f
+        val pulse = 0.5f + 0.2f * sin(sim.time * 3f + o.x * 0.05f)
+        drawCircle(Color(0xFF10201A).copy(alpha = 0.72f), or, Offset(ox, oy))
+        drawCircle(Color(0xFF46C6A2).copy(alpha = 0.16f + 0.12f * pulse), or, Offset(ox, oy), style = Stroke(6f))
+        drawCircle(Color(0xFF46C6A2).copy(alpha = 0.5f), or * 0.7f, Offset(ox, oy), style = Stroke(2.5f))
+        val runes = 8
+        for (i in 0 until runes) {
+            val a = i * (6.28318f / runes) + spin
+            drawLine(
+                Color(0xFF7EF0CD).copy(alpha = 0.55f),
+                Offset(ox + cos(a) * or * 0.78f, oy + sin(a) * or * 0.78f),
+                Offset(ox + cos(a) * or * 0.94f, oy + sin(a) * or * 0.94f),
+                4f, StrokeCap.Round
+            )
+        }
+        drawCircle(Color(0xFF7EF0CD).copy(alpha = 0.18f + 0.12f * pulse), or * 0.18f, Offset(ox, oy))
     }
     // 增益祭坛：脉动彩印 + 剩余时间弧
     sim.shrine?.let { sh ->

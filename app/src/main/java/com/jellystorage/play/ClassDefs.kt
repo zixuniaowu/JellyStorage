@@ -67,7 +67,7 @@ fun skillsFor(hero: HeroClass): List<SkillDef> = when (hero) {
     HeroClass.MAGE -> listOf(
         SkillDef(SkillSlot.BASIC, "火球", "火", 0.42f, 0f, "火球溅射·点燃", 1),
         SkillDef(SkillSlot.S1, "魔法盾", "盾", 9f, 24f, "法盾护体·受击迟缓来敌", 1),
-        SkillDef(SkillSlot.S2, "链雷", "雷", 5.0f, 24f, "全屏雷暴·连锁所有敌人", 4),
+        SkillDef(SkillSlot.S2, "链雷", "雷", 5.0f, 24f, "全屏雷暴·连锁所有敌人", 2),
         SkillDef(SkillSlot.S3, "炎爆", "爆", 5.5f, 26f, "目标点范围大爆炸", 6),
         SkillDef(SkillSlot.ULT, "墨马·流火", "马", 11f, 40f, "必杀：全屏墨马·附燃", 8)
     )
