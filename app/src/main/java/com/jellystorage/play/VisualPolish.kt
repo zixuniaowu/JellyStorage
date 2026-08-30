@@ -2155,6 +2155,15 @@ fun DrawScope.drawMapNodeIcon(
     }
     // glyph art
     when (type) {
+        NodeType.TREASURE -> {
+            drawRoundRect(col, Offset(c.x - r * 0.36f, c.y - r * 0.16f), Size(r * 0.72f, r * 0.4f), CornerRadius(2f))
+            drawCircle(Color.White.copy(alpha = 0.7f), r * 0.08f, c)
+        }
+        NodeType.CHALLENGE -> {
+            drawCircle(Color.White.copy(alpha = 0.85f), r * 0.3f, c)
+            drawCircle(Color(0xFF0B1220), r * 0.11f, Offset(c.x - r * 0.1f, c.y - r * 0.04f))
+            drawCircle(Color(0xFF0B1220), r * 0.11f, Offset(c.x + r * 0.1f, c.y - r * 0.04f))
+        }
         NodeType.MOB, NodeType.ELITE -> {
             // little slime
             val sc = r * 0.45f

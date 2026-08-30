@@ -378,6 +378,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 NodeType.MOB -> 1
                 NodeType.ELITE -> 4
                 NodeType.BOSS -> 7
+                NodeType.CHALLENGE -> 5
                 else -> 0
             }
             val sim = ArenaSim(
@@ -1242,6 +1243,25 @@ private fun settleVictory(
     val leveled = meta.addXp(sim.xpEarned)
     val grade = sim.clearGrade.ifEmpty { "B" }
     val newChallenges = settleChallenges(sim, meta, progress, node?.type == NodeType.BOSS, grade)
+    // 挑战房通关奖励：额外金币 + 一件当期品级装备
+    if (node?.type == NodeType.CHALLENGE) {
+        val tierCap = maxGearTierForThreat(meta.stageIndex * 5 + meta.roomsCleared + 3)
+        val pool: List<Any> = WeaponCatalog.all.filter { it.tierLevel() in 1..tierCap } +
+            ArmorCatalog.all.filter { it.tier in 1..tierCap }
+        when (val gearItem = pool.randomOrNull()) {
+            is GearWeapon -> if (meta.grantWeapon(gearItem)) {
+                if (gearItem.canEquip(meta.hero) && gearItem.atkBonus > meta.equippedWeapon().atkBonus) meta.equipWeapon(gearItem.id)
+                meta.toast += " · 挑战奖励 武·${gearItem.name}"
+            }
+            is GearArmor -> if (meta.grantArmor(gearItem)) {
+                if (gearItem.canEquip(meta.hero) && gearItem.hpBonus > meta.equippedArmor().hpBonus) meta.equipArmor(gearItem.id)
+                meta.toast += " · 挑战奖励 甲·${gearItem.name}"
+            }
+            else -> Unit
+        }
+        meta.gold += 40
+        meta.goldEarnedThisRun += 40
+    }
     // 职业试炼累计：统计本场合账数据；皮肤首次解锁时提示
     val (_, skinJustUnlocked) = progress.recordTrialBattle(
         meta.hero,
@@ -2037,7 +2057,65 @@ private fun enterNode(
             meta.queueStory(enterBeats, "MAP")
             setScreen(Screen.STORY)
         }
-        NodeType.MOB, NodeType.ELITE, NodeType.BOSS -> goFight()
+        NodeType.MOB, NodeType.ELITE, NodeType.BOSS, NodeType.CHALLENGE -> goFight()
+        NodeType.TREASURE -> {
+            val threat = meta.stageIndex * 5 + meta.roomsCleared
+            val tierCap = maxGearTierForThreat(threat + 3)
+            val weapons = WeaponCatalog.all.filter { it.tierLevel() in 1..tierCap && it.cost > 0 }.shuffled()
+            val armors = ArmorCatalog.all.filter { it.tier in 1..tierCap && it.cost > 0 }.shuffled()
+            val accessories = (RingCatalog.all.filter { it.tier in 1..tierCap && it.cost > 0 } +
+                BootsCatalog.all.filter { it.tier in 1..tierCap && it.cost > 0 }).shuffled()
+            val offers = buildList {
+                weapons.getOrNull(0)?.let { add(Triple(it.name, 0, it.id)) }
+                armors.getOrNull(0)?.let { add(Triple(it.name, 1, it.id)) }
+                accessories.getOrNull(0)?.let { add(Triple(it.name, 2, it.id)) }
+            }.shuffled()
+            meta.eventTitle = node.name
+            meta.eventBody = "三件免疫造物在此流转成形——只能取走一件。\n（重复的装备会折算成金币）"
+            meta.eventChoices = offers.map { (name, kind, id) ->
+                "取走「$name」" to {
+                    var outcome = ""
+                    when (kind) {
+                        0 -> WeaponCatalog.byId(id)?.let { w ->
+                            if (meta.grantWeapon(w)) {
+                                if (w.canEquip(meta.hero) && w.atkBonus > meta.equippedWeapon().atkBonus) meta.equipWeapon(w.id)
+                                outcome = "宝物入手：「${w.name}」"
+                            } else {
+                                meta.gold += 12; meta.goldEarnedThisRun += 12
+                                outcome = "已是旧识（已有），折算 +12 金"
+                            }
+                        }
+                        1 -> ArmorCatalog.byId(id)?.let { a ->
+                            if (meta.grantArmor(a)) {
+                                if (a.canEquip(meta.hero) && a.hpBonus > meta.equippedArmor().hpBonus) meta.equipArmor(a.id)
+                                outcome = "宝物入手：「${a.name}」"
+                            } else {
+                                meta.gold += 12; meta.goldEarnedThisRun += 12
+                                outcome = "已是旧识（已有），折算 +12 金"
+                            }
+                        }
+                        else -> {
+                            val acc = RingCatalog.byId(id) ?: BootsCatalog.byId(id)
+                            if (acc != null) {
+                                val freshRing = meta.grantRing(acc)
+                                val freshBoots = if (freshRing) false else meta.grantBoots(acc)
+                                if (freshRing && meta.equippedRingId.isBlank()) meta.equipRing(acc.id)
+                                if (freshBoots && meta.equippedBootsId.isBlank()) meta.equipBoots(acc.id)
+                                outcome = if (freshRing || freshBoots) "宝物入手：「${acc.name}」"
+                                else {
+                                    meta.gold += 12; meta.goldEarnedThisRun += 12
+                                    "已是旧识（已有），折算 +12 金"
+                                }
+                            }
+                        }
+                    }
+                    meta.addJournal(outcome.take(28))
+                    meta.toast = outcome.take(36)
+                    meta.toastT = 2.4f
+                }
+            }
+            setScreen(Screen.EVENT)
+        }
         NodeType.GOLD -> {
             val gMul = meta.combatMods().goldMul
             val got = (node.goldDrop * gMul).toInt().coerceAtLeast(node.goldDrop)
@@ -3175,6 +3253,8 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
                 NodeType.EVENT -> "事"
                 NodeType.TRAP -> "险"
                 NodeType.EXIT -> "出"
+                NodeType.TREASURE -> "宝"
+                NodeType.CHALLENGE -> "挑"
                 else -> "·"
             }
             val rec = el?.let { "荐${it.beatenBy().short}" } ?: nodeRiskHint(n).take(6)

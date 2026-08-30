@@ -374,6 +374,19 @@ fun DrawScope.drawInkNodeIcon(
             drawRoundRect(Color(0xFF78716C), Offset(c.x - r * 0.35f, c.y - r * 0.08f), Size(r * 0.7f, r * 0.3f), CornerRadius(3f))
             drawCircle(Color(0xFFD97706), r * 0.12f, Offset(c.x + r * 0.22f, c.y - r * 0.22f))
         }
+        NodeType.TREASURE -> {
+            // 小宝箱：箱体 + 锁扣
+            drawRoundRect(Color(0xFFB45309), Offset(c.x - r * 0.38f, c.y - r * 0.18f), Size(r * 0.76f, r * 0.42f), CornerRadius(3f))
+            drawRoundRect(Color(0xFFFBBF24), Offset(c.x - r * 0.38f, c.y - r * 0.28f), Size(r * 0.76f, r * 0.2f), CornerRadius(3f))
+            drawCircle(Color(0xFFF5EBD4), r * 0.09f, Offset(c.x, c.y - r * 0.02f))
+        }
+        NodeType.CHALLENGE -> {
+            // 骷髅印记：高危但诱人
+            drawCircle(Color(0xFF44403C), r * 0.4f, c)
+            drawCircle(Color(0xFFF5EBD4), r * 0.1f, Offset(c.x - r * 0.14f, c.y - r * 0.1f))
+            drawCircle(Color(0xFFF5EBD4), r * 0.1f, Offset(c.x + r * 0.14f, c.y - r * 0.1f))
+            drawRect(Color(0xFFF5EBD4), Offset(c.x - r * 0.05f, c.y + r * 0.05f), Size(r * 0.1f, r * 0.16f))
+        }
         NodeType.GOLD -> drawCircle(Color(0xFFCA8A04), r * 0.36f, c)
         NodeType.HEAL, NodeType.REST -> {
             drawCircle(Color(0xFF4D7C0F), r * 0.34f, c)
@@ -550,8 +563,14 @@ private fun scaleStage(st: StageDef, mul: Float, seed: Long, inkRank: Int): Stag
     return st.copy(
         title = title,
         tip = if (inkRank > 0) "变异第${inkRank}代 · 敌人更强 · 掉落更丰" else st.tip,
-        nodes = st.nodes.map { n ->
+        nodes = st.nodes.mapIndexed { ni, n ->
             val gMul = 0.92f + rng.nextFloat() * 0.22f + inkRank.coerceAtMost(15) * 0.04f
+            // 章节节点多样化：中途一座宝物房；第二章起后半一座挑战房（确定性注入）
+            val typeOverride = when {
+                ni == st.nodes.size / 2 && n.type == NodeType.MOB -> NodeType.TREASURE
+                st.id >= 1 && ni == (st.nodes.size * 3) / 4 && n.type == NodeType.MOB -> NodeType.CHALLENGE
+                else -> null
+            }
             n.copy(
                 goldDrop = (n.goldDrop * gMul).toInt().coerceAtLeast(if (n.goldDrop > 0) 1 else 0),
                 trapDmg = n.trapDmg * mutationTrapScale(inkRank),
@@ -564,7 +583,7 @@ private fun scaleStage(st: StageDef, mul: Float, seed: Long, inkRank: Int): Stag
                     })
                 },
                 // 小概率把非战斗房换成另一类，增加重开新鲜感
-                type = maybeSwapNode(n, rng, inkRank),
+                type = typeOverride ?: maybeSwapNode(n, rng, inkRank),
                 eventId = if (n.type == NodeType.EVENT && n.eventId.isNotBlank() && rng.nextFloat() < 0.35f) {
                     listOf("merchant", "bard", "stele", "archive", "inkwell", "spirit_forge").random(rng)
                 } else n.eventId

@@ -128,6 +128,14 @@ object StoryBook {
                 StoryBeat("免疫中枢", "区域扫描完成，感染路径已经标记。"),
                 StoryBeat("你", "开始净化。")
             )
+            NodeType.TREASURE -> listOf(
+                StoryBeat("免疫中枢", "检测到未解析的免疫造物聚集反应。"),
+                StoryBeat("你", "三选一……这种好事可不能错过。")
+            )
+            NodeType.CHALLENGE -> listOf(
+                StoryBeat("免疫中枢", "警告：前方病原体浓度极高。"),
+                StoryBeat("你", "危险越大，收获越大。来吧。")
+            )
             NodeType.MOB -> listOf(
                 StoryBeat("旁白", "病原体信号快速增殖，正在包围你的细胞膜。", StoryMood.TENSE),
                 StoryBeat("你", "锁定抗原，开始吞噬。", StoryMood.TENSE)

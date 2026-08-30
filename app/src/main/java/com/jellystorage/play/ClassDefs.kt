@@ -216,7 +216,7 @@ fun EnemyKind.burstColor(): Long = when (this) {
 }
 
 enum class NodeType {
-    START, MOB, ELITE, GOLD, HEAL, TRAP, SHOP, BOSS, EXIT, EVENT, REST
+    START, MOB, ELITE, GOLD, HEAL, TRAP, SHOP, BOSS, EXIT, EVENT, REST, TREASURE, CHALLENGE
 }
 
 data class MapNode(
@@ -716,6 +716,8 @@ fun nodeColor(t: NodeType): Color = when (t) {
     NodeType.EXIT -> Color(0xFF2DD4BF)
     NodeType.EVENT -> Color(0xFFF472B6)
     NodeType.REST -> Color(0xFFFDBA74)
+    NodeType.TREASURE -> Color(0xFFFDE047)
+    NodeType.CHALLENGE -> Color(0xFFF87171)
 }
 
 fun nodeGlyph(t: NodeType): String = when (t) {
@@ -730,6 +732,8 @@ fun nodeGlyph(t: NodeType): String = when (t) {
     NodeType.EXIT -> "通"
     NodeType.EVENT -> "事"
     NodeType.REST -> "休"
+    NodeType.TREASURE -> "宝"
+    NodeType.CHALLENGE -> "挑"
 }
 
 /** Short risk tag for map choices. */
@@ -744,6 +748,8 @@ fun nodeRiskTag(t: NodeType): String = when (t) {
     NodeType.EVENT -> "抉择"
     NodeType.EXIT -> "通关"
     NodeType.START -> "起点"
+    NodeType.TREASURE -> "寻宝"
+    NodeType.CHALLENGE -> "挑战"
 }
 
 fun nodeRiskHint(n: MapNode): String {
