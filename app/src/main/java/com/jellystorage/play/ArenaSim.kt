@@ -364,6 +364,8 @@ class ArenaSim(
     var slashWidth: Float = 1f
     /** 战士普攻三连击拍：第 3 刀为重斩（更宽弧 + 击退） */
     private var slashSwing = 0
+    /** 待结算的连杀冲击波（帧首执行，防伤害栈内递归） */
+    private var shockPending = 0
     /** 法师魔法盾剩余时间：盾期间受击迟缓来敌 */
     var manaShieldT: Float = 0f
         private set
@@ -688,7 +690,25 @@ class ArenaSim(
 
         if (!terrainReady) {
             terrainReady = true
-            if (bossEncounter == null && spawnTerrain) generateTerrain()
+            if (bossEncounter == null && spawnTerrain) {
+                generateTerrain()
+                resolveObstacles(player)
+            }
+        }
+        // 连杀冲击波：帧首统一结算（其伤害可再次点亮 pending，下一帧继续，不递归）
+        if (shockPending != 0) {
+            shockPending = 0
+            rings.add(RingFx(player.x, player.y, 230f * u, 0.42f, 0.42f, 0xFFEF4444))
+            float(player.x, player.y - player.radius - 46f, "墨气爆!", 239, 68, 68, 1.3f)
+            shake = max(shake, 0.32f)
+            impactFlash = max(impactFlash, 0.18f)
+            hapticEvent = max(hapticEvent, 3)
+            for (e2 in enemies.toList()) {
+                if (e2.dead) continue
+                if (dist(player.x, player.y, e2.x, e2.y) <= 225f * u + e2.radius) {
+                    damageEnemy(e2, player.atk * 1.2f, heavy = true)
+                }
+            }
         }
 
         // snappy move: direct velocity from stick (no laggy accel)
@@ -2075,16 +2095,21 @@ class ArenaSim(
         }
     }
 
-    /** 战场地形：免疫组织块（Boss 房保持空旷；避开上缘出怪带与玩家出生区） */
+    /** 战场地形：免疫组织块（Boss 房保持空旷；避开玩家出生点、上缘出怪带与墙边楔形缝） */
     private fun generateTerrain() {
         val n = 2 + prng.nextInt(2)
         var guard = 0
         while (obstacles.size < n && guard++ < 50) {
             val r = (46f + prng.nextFloat() * 30f) * u
-            val x = width * (0.24f + prng.nextFloat() * 0.52f)
-            val y = height * (0.30f + prng.nextFloat() * 0.42f)
-            if (y < height * 0.26f + r) continue
-            if (dist(x, y, width * 0.5f, height * 0.85f) < r + 100f * u) continue
+            val loX = pad + r + 40f * u
+            val hiX = width - pad - r - 40f * u
+            val loY = pad + r + 60f * u
+            val hiY = height - pad - r - 60f * u
+            if (hiX <= loX || hiY <= loY) continue
+            val x = loX + prng.nextFloat() * (hiX - loX)
+            val y = loY + prng.nextFloat() * (hiY - loY)
+            // 玩家出生区(0.35w,0.55h)净空，防止开局被挤/卡楔形缝
+            if (dist(x, y, width * 0.35f, height * 0.55f) < r + 130f * u) continue
             if (obstacles.any { dist(x, y, it.x, it.y) < r + it.r + 80f * u }) continue
             obstacles.add(Obstacle(x, y, r))
         }
@@ -3244,19 +3269,9 @@ class ArenaSim(
             float(player.x, player.y - player.radius - 30f, title, 251, 146, 60, 1.45f)
             addUlt(8f)
         }
-        // 连杀冲击波：每 12 连击自动放一圈墨气爆，爽感与清场奖励
-        if (comboCount > 0 && comboCount % 12 == 0) {
-            rings.add(RingFx(player.x, player.y, 230f * u, 0.42f, 0.42f, 0xFFEF4444))
-            float(player.x, player.y - player.radius - 46f, "墨气爆!", 239, 68, 68, 1.3f)
-            shake = max(shake, 0.32f)
-            impactFlash = max(impactFlash, 0.18f)
-            hapticEvent = max(hapticEvent, 3)
-            for (e2 in enemies.toList()) {
-                if (e2.dead) continue
-                if (dist(player.x, player.y, e2.x, e2.y) <= 225f * u + e2.radius) {
-                    damageEnemy(e2, player.atk * 1.2f, heavy = true)
-                }
-            }
+        // 连杀冲击波：每 12 连击触发一圈墨气爆（帧首统一结算，避免在伤害栈内递归把主线程卡死）
+        if (comboCount > 0 && comboCount % 12 == 0 && shockPending == 0) {
+            shockPending = 1
         }
         if (crit) float(e.x, e.y - e.radius - 12f, "暴击 ${dmg.toInt()}", 250, 204, 21, 1.55f)
         else float(e.x, e.y - e.radius - 6f, "${dmg.toInt()}", 255, 255, 255, 1.25f)
