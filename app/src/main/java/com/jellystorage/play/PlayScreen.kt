@@ -419,7 +419,8 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 roomTrial = roomTrialFor(meta.runSeed, meta.stageIndex, node),
                 coreInkRanks = meta.coreInkRanks.toMap(),
                 bossEncounter = if (node.type == NodeType.BOSS) bossEncounterForStage(meta.stage().id) else null,
-                environment = arenaEnvironmentFor(meta.stage().chapterIndex, node.id, node.type)
+                environment = arenaEnvironmentFor(meta.stage().chapterIndex, node.id, node.type),
+                spawnTerrain = true
             )
             arena = sim
             val environmentLine = sim.environment.takeIf { it.active }?.let {
@@ -3600,6 +3601,31 @@ private fun DrawScope.drawArena(
         drawCircle(Color(0xFF3B5A48), or * 0.84f, Offset(ox - or * 0.08f, oy - or * 0.1f))
         drawCircle(Color(0x24FFFFFF), or * 0.3f, Offset(ox - or * 0.26f, oy - or * 0.3f))
         drawCircle(Color(0xFF16241D), or, Offset(ox, oy), style = Stroke(3f))
+    }
+    // 增益祭坛：脉动彩印 + 剩余时间弧
+    sim.shrine?.let { sh ->
+        val a = (sh.life / sh.maxLife).coerceIn(0f, 1f)
+        val pulse = 1f + sin(sim.time * 7f) * 0.08f
+        val cx = wx(sh.x); val cy = wy(sh.y)
+        val col = when (sh.buff) {
+            0 -> Color(0xFFFB923C)
+            1 -> Color(0xFF7DD3FC)
+            2 -> Color(0xFFA78BFA)
+            else -> Color(0xFFFBBF24)
+        }
+        val glyph = when (sh.buff) {
+            0 -> "攻"
+            1 -> "盾"
+            2 -> "蓝"
+            else -> "金"
+        }
+        drawCircle(col.copy(alpha = 0.22f + 0.25f * a), wr(52f) * pulse, Offset(cx, cy))
+        drawCircle(col.copy(alpha = 0.85f * a), wr(26f) * pulse, Offset(cx, cy), style = Stroke(4f))
+        drawArc(
+            col.copy(alpha = a), -90f, 360f * a, false,
+            Offset(cx - wr(42f), cy - wr(42f)), Size(wr(84f), wr(84f)), style = Stroke(3f)
+        )
+        title(tm, glyph, cx, cy - wr(12f), Color.White.copy(alpha = a), 16.sp)
     }
 
     // 墨迹残留层（在角色脚下，战斗中累积，清场可成画）

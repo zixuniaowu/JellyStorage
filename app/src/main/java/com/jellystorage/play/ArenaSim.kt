@@ -144,6 +144,13 @@ data class SlashArcFx(
 
 /** 战场地形：圆形免疫组织块，阻挡弹体与走位 */
 data class Obstacle(val x: Float, val y: Float, val r: Float)
+
+/** 战斗中途增益祭坛：限时触碰即得随机增益 */
+data class Shrine(
+    var x: Float, var y: Float,
+    var life: Float, val maxLife: Float,
+    val buff: Int // 0战意 1灵盾 2蓝潮 3墨金
+)
 data class SkillCastFx(
     var x: Float,
     var y: Float,
@@ -278,6 +285,8 @@ class ArenaSim(
     val coreInkRanks: Map<CoreInkId, Int> = emptyMap(),
     /** 仅章节终点传入；把复用的 Boss 身体映射为五种真正不同的首领战。 */
     val bossEncounter: BossEncounter? = null,
+    /** 真实战斗生成随机地形；测试构建默认关闭以保证可复现 */
+    val spawnTerrain: Boolean = false,
     /** 当前战斗房的场地身份、构型和周期环境技。 */
     val environment: ArenaEnvironment = ArenaEnvironment.NONE
 ) {
@@ -312,6 +321,12 @@ class ArenaSim(
     var waveMod: WaveMod = WaveMod.NONE
         private set
     private var terrainReady = false
+    /** 战斗中途增益祭坛 */
+    var shrine: Shrine? = null
+        private set
+    private var shrineCooldown = 7f
+    /** 本波是否已出过侧翼增援 */
+    private var reinforcedThisWave = false
     val echoPulses = ArrayList<EchoPulseFx>(12)
     val bossHazards = ArrayList<BossHazard>(24)
     val particles = ArrayList<Particle>(128)
@@ -672,7 +687,7 @@ class ArenaSim(
 
         if (!terrainReady) {
             terrainReady = true
-            if (bossEncounter == null) generateTerrain()
+            if (bossEncounter == null && spawnTerrain) generateTerrain()
         }
 
         // snappy move: direct velocity from stick (no laggy accel)
@@ -1218,6 +1233,7 @@ class ArenaSim(
 
     private fun spawnWave(idx: Int) {
         enemies.clear()
+        reinforcedThisWave = false
         val wave = waveList[idx]
         waveMod = WaveMod.roll(idx, prng)
         val tm = threatMul(idx)
@@ -2077,8 +2093,114 @@ class ArenaSim(
         }
     }
 
+    private fun shrineColor(buff: Int): Long = when (buff) {
+        0 -> 0xFFFB923C
+        1 -> 0xFF7DD3FC
+        2 -> 0xFFA78BFA
+        else -> 0xFFFBBF24
+    }
+
+    /** 中途动态事件：增益祭坛（限时抢夺）+ 侧翼增援（残敌时包抄） */
+    private fun updateShrine(d: Float) {
+        val s = shrine
+        if (s != null) {
+            s.life -= d
+            if (s.life <= 0f) {
+                shrine = null
+                shrineCooldown = 8f
+            } else if (dist(player.x, player.y, s.x, s.y) < player.radius + 36f * u) {
+                when (s.buff) {
+                    0 -> {
+                        player.applyStatus(StatusType.RAGE, 6f, 0.3f)
+                        float(player.x, player.y - 60f, "战意沸腾! 攻击强化", 251, 146, 60, 1.2f)
+                    }
+                    1 -> {
+                        player.applyStatus(StatusType.SHIELD, 5f, player.maxHp * 0.25f)
+                        float(player.x, player.y - 60f, "灵盾加身!", 125, 211, 252, 1.2f)
+                    }
+                    2 -> {
+                        mp = maxMp
+                        float(player.x, player.y - 60f, "蓝潮满涌!", 167, 139, 250, 1.2f)
+                    }
+                    else -> {
+                        val g = 18 + prng.nextInt(0, 13)
+                        goldEarned += g
+                        float(player.x, player.y - 60f, "墨金 +$g!", 251, 191, 36, 1.2f)
+                    }
+                }
+                burst(s.x, s.y, 22, shrineColor(s.buff), 230f * u, 0.5f)
+                rings.add(RingFx(s.x, s.y, 62f * u, 0.4f, 0.4f, shrineColor(s.buff)))
+                hapticEvent = max(hapticEvent, 3)
+                shrine = null
+                shrineCooldown = 9f
+            }
+        } else {
+            shrineCooldown -= d
+            val alive = enemies.count { !it.dead }
+            if (waveIndex >= 1 && alive in 2..7 && shrineCooldown <= 0f && prng.nextFloat() < d * 0.22f) {
+                spawnShrine()
+            }
+        }
+        // 侧翼增援：残敌不多时从边缘包抄（每波至多一次，延迟概率触发）
+        if (waveIndex >= 1 && !reinforcedThisWave) {
+            val alive = enemies.count { !it.dead }
+            if (alive in 1..2 && prng.nextFloat() < d * 0.55f) {
+                reinforcedThisWave = true
+                spawnReinforcements()
+            }
+        }
+    }
+
+    private fun spawnShrine() {
+        var guard = 0
+        while (guard++ < 30) {
+            val x = width * (0.25f + prng.nextFloat() * 0.5f)
+            val y = height * (0.30f + prng.nextFloat() * 0.42f)
+            if (obstacles.any { dist(x, y, it.x, it.y) < it.r + 50f * u }) continue
+            if (dist(x, y, player.x, player.y) < 120f * u) continue
+            shrine = Shrine(x, y, 4.5f, 4.5f, prng.nextInt(4))
+            float(x, y - 30f, "增益祭坛出现!", 253, 224, 71, 1.25f)
+            rings.add(RingFx(x, y, 52f * u, 0.5f, 0.5f, 0xFFFDE047))
+            shake = max(shake, 0.1f)
+            return
+        }
+    }
+
+    /** 侧翼增援：两只快速小怪从随机边缘包抄进场 */
+    private fun spawnReinforcements() {
+        val edge = prng.nextInt(4)
+        val kind = if (prng.nextFloat() < 0.5f) EnemyKind.BAT else EnemyKind.RAT
+        repeat(2) { i ->
+            val x = when (edge) {
+                0 -> width * (0.08f + i * 0.07f)
+                1 -> width * (0.92f - i * 0.07f)
+                2 -> width * (0.2f + i * 0.12f)
+                else -> width * (0.68f + i * 0.12f)
+            }
+            val y = if (edge >= 2) height * (0.08f + i * 0.05f) else height * (0.55f + i * 0.08f)
+            val hp = 60f * threatMul(waveIndex) * 1.12f * mods.enemyHpMul
+            enemies.add(
+                Actor(
+                    x = x.coerceIn(pad + 20f * u, width - pad - 20f * u),
+                    y = y.coerceIn(pad + 20f * u, height - pad - 20f * u),
+                    hp = hp, maxHp = hp,
+                    radius = kind.baseRadius() * u,
+                    atk = 10f * threatMul(waveIndex) * 1.12f * mods.enemyAtkMul,
+                    speed = 155f * u * enemySpeedThreatMultiplier(threatLevel),
+                    isPlayer = false,
+                    attackCd = 0.4f, supportCd = 3f, specialCd = 3f,
+                    kind = kind, element = kind.element(), ai = EnemyAi.CHASE,
+                    elite = false, eliteTrait = EnemyEliteTrait.NONE, thorns = 0f, armor = 0f
+                )
+            )
+            float(x, y, "增援!", 248, 113, 113, 1.2f)
+        }
+        shake = max(shake, 0.12f)
+    }
+
     private fun updateFields(d: Float) {
         updateSlashFx(d)
+        updateShrine(d)
         var i = 0
         while (i < fields.size) {
             val f = fields[i]
@@ -3197,6 +3319,8 @@ class ArenaSim(
         e.dead = true
         e.hp = 0f
         e.squash = 1f
+        // 击杀回蓝：奖励积极进攻（法师双发/技能循环的燃料）
+        mp = min(maxMp, mp + 3f)
         if (combatProc == GearProc.KILL_SHIELD && gearProcCooldown <= 0f) {
             player.applyStatus(StatusType.SHIELD, 2.2f, player.maxHp * combatProcPower.coerceIn(0.08f, 0.22f))
             float(player.x, player.y - 40f, "杀意护盾", 251, 191, 36, 1.0f)
