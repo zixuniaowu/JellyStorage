@@ -134,6 +134,20 @@ internal class ArenaRawTouchState {
     /** 已按下手指最近一次事件时刻（uptime ms）。系统手势截胡丢失 UP 时按超时回收，防止角色永久卡住 */
     val lastSeen = HashMap<Int, Long>()
 
+    /** 调查日志节流 */
+    var lastJoyLogMs = 0L
+
+    /** 指针当前承担的输入角色（日志用） */
+    fun roleOf(id: Int): String = when (id) {
+        joyId -> "joy"
+        basicId -> "atk"
+        skill1Id -> "s1"
+        skill2Id -> "s2"
+        skill3Id -> "s3"
+        ultId -> "ult"
+        else -> "?"
+    }
+
     fun reset() {
         joyId = -1
         basicId = -1
@@ -315,6 +329,10 @@ fun PlayScreen(modifier: Modifier = Modifier) {
     }
 
     fun releaseArenaPointer(pointerId: Int) {
+        if (BuildConfig.DEBUG) {
+            val role = arenaRawTouch.roleOf(pointerId)
+            if (role != "?") android.util.Log.d("JellyInterop", "RELEASE $role id=$pointerId")
+        }
         when (pointerId) {
             arenaRawTouch.joyId -> {
                 arenaRawTouch.joyId = -1
@@ -455,9 +473,9 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         if (perfLogT >= 1f) {
                             val avg = perfFrameAcc / perfFrameN
                             val dAvg = if (perfDrawN > 0) perfDrawMs / perfDrawN else 0f
-                            if (BuildConfig.DEBUG) android.util.Log.d(
+                            if (BuildConfig.DEBUG)                             if (BuildConfig.DEBUG) android.util.Log.d(
                                 "JellyPerf",
-                                "frame avg=${"%.1f".format(avg)}ms max=${"%.1f".format(perfFrameMax)}ms draw=${"%.1f".format(dAvg)}ms (n=${perfFrameN}/${perfDrawN})"
+                                "frame avg=${"%.1f".format(avg)}ms max=${"%.1f".format(perfFrameMax)}ms draw=${"%.1f".format(dAvg)}ms stick=(${"%.2f".format(stickX)},${"%.2f".format(stickY)}) (n=${perfFrameN}/${perfDrawN})"
                             )
                             perfFrameAcc = 0f; perfFrameN = 0; perfFrameMax = 0f
                             perfDrawMs = 0f; perfDrawN = 0; perfLogT = 0f
@@ -758,6 +776,7 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 // 上一手势若被系统手势截胡吞掉 UP/CANCEL，残留的 joy/技能 id 全是幽灵——先清场再受理
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     releaseArenaTouches()
+                    if (BuildConfig.DEBUG) android.util.Log.d("JellyInterop", "SWEEP fresh gesture (ghost clear)")
                 }
                 val index = event.actionIndex
                 press(event.getPointerId(index), Offset(event.getX(index), event.getY(index)))
@@ -769,13 +788,27 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                 if (jId >= 0 && event.findPointerIndex(jId) < 0) {
                     releaseArenaPointer(jId)
                     arenaRawTouch.lastSeen.remove(jId)
+                    if (BuildConfig.DEBUG) android.util.Log.d("JellyInterop", "GHOST-JOY release id=$jId (stream lost the pointer)")
                 }
                 val joyIndex = event.findPointerIndex(arenaRawTouch.joyId)
-                if (joyIndex >= 0) updateJoystick(Offset(event.getX(joyIndex), event.getY(joyIndex)))
+                if (joyIndex >= 0) {
+                    updateJoystick(Offset(event.getX(joyIndex), event.getY(joyIndex)))
+                    val nowMs = SystemClock.uptimeMillis()
+                    if (BuildConfig.DEBUG && nowMs - arenaRawTouch.lastJoyLogMs > 400) {
+                        arenaRawTouch.lastJoyLogMs = nowMs
+                        android.util.Log.d(
+                            "JellyInterop",
+                            "JOY move id=$jId stick=(${"%.2f".format(stickX)},${"%.2f".format(stickY)})"
+                        )
+                    }
+                }
             }
             MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP ->
                 releaseArenaPointer(event.getPointerId(event.actionIndex))
-            MotionEvent.ACTION_CANCEL -> releaseArenaTouches()
+            MotionEvent.ACTION_CANCEL -> {
+                if (BuildConfig.DEBUG) android.util.Log.d("JellyInterop", "CANCEL sweep-all")
+                releaseArenaTouches()
+            }
         }
         // 刷新所有在按手指的活跃时刻：静止手指靠其他手指的事件批次一并刷新
         val lifted = when (event.actionMasked) {
