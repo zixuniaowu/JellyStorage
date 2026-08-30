@@ -168,7 +168,8 @@ data class BoltFx(
     val y1: Float,
     var life: Float,
     val maxLife: Float,
-    val color: Long
+    val color: Long,
+    val width: Float = 9f
 )
 data class EchoPulseFx(
     var x: Float,
@@ -1573,25 +1574,31 @@ class ArenaSim(
         var prevX = player.x
         var prevY = player.y
         val branchRank = coreRank(CoreInkId.MAGE_STORM_BRANCH)
-        // 全屏雷暴：跳满全场所有敌人（核心墨印再加盖帽）
+        // 全屏天雷：跳满全场所有敌人（核心墨印再加盖帽）
         val maxHops = 12 + branchRank * 3
         while (cur != null && hops < maxHops && hit.size < living.size) {
             hit.add(cur)
             // 无衰减：每一个目标都吃满伤害
             damageEnemy(cur, player.atk * 1.35f, heavy = hops == 0)
             cur.applyStatus(StatusType.VULN, 2.2f, 0.2f)
-            rings.add(RingFx(cur.x, cur.y, 34f * u, 0.3f, 0.3f, 0xFFA78BFA))
-            burst(cur.x, cur.y, 8, 0xFFC4B5FD, 120f * u, 0.28f)
+            // 天雷贯穿：从屏幕顶端劈到目标本体（双层的紫晕 + 白芯）
+            bolts.add(BoltFx(cur.x, cur.y - 900f * u, cur.x, cur.y, 0.34f, 0.34f, 0xFFC4B5FD, width = 15f))
+            bolts.add(BoltFx(cur.x, cur.y - 900f * u, cur.x, cur.y, 0.22f, 0.22f, 0xFFE9D5FF, width = 7f))
+            // 地面链环：上一个目标 → 本目标
+            if (hops > 0) {
+                bolts.add(BoltFx(prevX, prevY, cur.x, cur.y, 0.3f, 0.3f, 0xFFA78BFA, width = 8f))
+            }
+            rings.add(RingFx(cur.x, cur.y, 42f * u, 0.32f, 0.32f, 0xFFA78BFA))
+            burst(cur.x, cur.y, 8, 0xFFC4B5FD, 130f * u, 0.3f)
             // 落点电离碎片 + 双分叉侧雷
-            shardBurst(cur.x, cur.y, 4, 0xFFC4B5FD, 240f * u, 0.26f, 13f * u)
+            shardBurst(cur.x, cur.y, 4, 0xFFC4B5FD, 250f * u, 0.27f, 13f * u)
             repeat(2) {
                 val forkA = prng.nextFloat() * 6.28318f
                 bolts.add(
-                    BoltFx(cur.x, cur.y, cur.x + cos(forkA) * 44f * u, cur.y + sin(forkA) * 44f * u, 0.18f, 0.18f, 0xFFC4B5FD)
+                    BoltFx(cur.x, cur.y, cur.x + cos(forkA) * 46f * u, cur.y + sin(forkA) * 46f * u, 0.2f, 0.2f, 0xFFC4B5FD, width = 6f)
                 )
             }
-            bolts.add(BoltFx(prevX, prevY, cur.x, cur.y, 0.26f, 0.26f, 0xFFE9D5FF))
-            float(cur.x, cur.y - cur.radius - 6f, if (hops == 0) "雷击!" else "连锁!", 167, 139, 250, 0.95f)
+            float(cur.x, cur.y - cur.radius - 8f, if (hops == 0) "天雷!" else "连锁!", 167, 139, 250, 1.0f)
             prevX = cur.x
             prevY = cur.y
             hops++
@@ -1602,9 +1609,9 @@ class ArenaSim(
                 .minByOrNull { dist(from.x, from.y, it.x, it.y) }
         }
         val branch = if (branchRank > 0) " · 雷枝${branchRank}阶" else ""
-        float(player.x, player.y - 44f, "雷暴 x$hops$branch", 167, 139, 250, 1.3f)
-        impactFlash = max(impactFlash, 0.24f)
-        shake = max(shake, 0.38f)
+        float(player.x, player.y - 44f, "天雷 · $hops 连$branch", 167, 139, 250, 1.35f)
+        impactFlash = max(impactFlash, 0.35f)
+        shake = max(shake, 0.45f)
     }
 
     /** Taoist S2: big heal + cleanse control. */

@@ -3850,14 +3850,14 @@ private fun DrawScope.drawArena(
         val length = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
         val nx = -dy / length; val ny = dx / length
         var px = x0; var py = y0
-        val segments = 8
+        val segments = (length / 26f).toInt().coerceIn(8, 22)
         for (i in 1..segments) {
             val q = i / segments.toFloat()
-            val jitter = if (i == segments) 0f else sin(i * 2.7f + sim.time * 38f) * 9f
+            val jitter = if (i == segments) 0f else sin(i * 2.7f + sim.time * 38f) * (bolt.width * 1.1f)
             val tx = x0 + dx * q + nx * jitter
             val ty = y0 + dy * q + ny * jitter
-            drawLine(Color(bolt.color).copy(alpha = alpha * 0.35f), Offset(px, py), Offset(tx, ty), 9f, StrokeCap.Round)
-            drawLine(Color.White.copy(alpha = alpha), Offset(px, py), Offset(tx, ty), 2.5f, StrokeCap.Round)
+            drawLine(Color(bolt.color).copy(alpha = alpha * 0.35f), Offset(px, py), Offset(tx, ty), bolt.width, StrokeCap.Round)
+            drawLine(Color.White.copy(alpha = alpha), Offset(px, py), Offset(tx, ty), bolt.width * 0.28f, StrokeCap.Round)
             px = tx; py = ty
         }
     }
