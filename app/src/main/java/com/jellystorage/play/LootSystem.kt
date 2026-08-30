@@ -51,6 +51,7 @@ fun WuXing.gateName(): String = "${short}关"
 
 fun EnemyKind.element(): WuXing = when (this) {
     EnemyKind.SLIME -> WuXing.WOOD
+    EnemyKind.MINI_SLIME -> WuXing.WOOD
     EnemyKind.PINK_SLIME -> WuXing.WATER
     EnemyKind.SPIKE_SLIME -> WuXing.METAL
     EnemyKind.BEETLE -> WuXing.EARTH

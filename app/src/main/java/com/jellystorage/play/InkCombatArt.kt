@@ -242,7 +242,7 @@ fun DrawScope.drawInkEnemy(
     translate(cx, y) {
         scale(r, r, pivot = Offset.Zero) {
             when (kind) {
-                EnemyKind.SLIME, EnemyKind.PINK_SLIME -> {
+                EnemyKind.MINI_SLIME, EnemyKind.SLIME, EnemyKind.PINK_SLIME -> {
                     drawPath(
                         SlimeDomePath,
                         Brush.verticalGradient(listOf(fill.copy(alpha = 0.95f), fill.copy(alpha = 0.62f)), startY = -1f, endY = 0.5f)

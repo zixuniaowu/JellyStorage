@@ -140,6 +140,8 @@ internal object JapaneseTranslations {
         put("灵盾加身!", "霊盾加護!")
         put("蓝潮满涌!", "魔力満潮!")
         put("增援!", "増援!")
+        put("裂变!", "分裂!")
+        put("墨气爆!", "墨気爆発!")
         put("宝物", "宝物")
         put("挑战", "挑戦")
         Regex("取走「(.+)」") to "「\$1」を持ち去る"

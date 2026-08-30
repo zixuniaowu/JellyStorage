@@ -175,6 +175,7 @@ data class WaveDef(val enemies: List<WaveEnemy>)
 /** Collision radius scale (before arena u). */
 fun EnemyKind.baseRadius(): Float = when (this) {
     EnemyKind.SLIME -> 22f
+    EnemyKind.MINI_SLIME -> 13f
     EnemyKind.PINK_SLIME -> 20f
     EnemyKind.SPIKE_SLIME -> 24f
     EnemyKind.BEETLE -> 26f
@@ -188,6 +189,7 @@ fun EnemyKind.baseRadius(): Float = when (this) {
 }
 
 fun EnemyKind.displayName(): String = when (this) {
+    EnemyKind.MINI_SLIME -> "芽孢体"
     EnemyKind.SLIME -> "球状菌"
     EnemyKind.PINK_SLIME -> "芽生菌"
     EnemyKind.SPIKE_SLIME -> "棘壳病毒"
@@ -202,6 +204,7 @@ fun EnemyKind.displayName(): String = when (this) {
 }
 
 fun EnemyKind.burstColor(): Long = when (this) {
+    EnemyKind.MINI_SLIME -> 0xFF86EFAC
     EnemyKind.SLIME -> 0xFF4ADE80
     EnemyKind.PINK_SLIME -> 0xFFF472B6
     EnemyKind.SPIKE_SLIME -> 0xFF94A3B8

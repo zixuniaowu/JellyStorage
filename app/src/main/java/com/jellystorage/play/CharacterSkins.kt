@@ -112,7 +112,7 @@ object SkinCatalog {
 
 /** Distinct monster roster — each has its own silhouette. */
 enum class EnemyKind {
-    SLIME, PINK_SLIME, SPIKE_SLIME,
+    SLIME, PINK_SLIME, SPIKE_SLIME, MINI_SLIME,
     BEETLE, BAT, SKELETON, GOBLIN, RAT, WISP,
     BOSS_SLIME, BOSS_ORE
 }
@@ -377,6 +377,7 @@ fun DrawScope.drawCuteEnemy(
         EnemyKind.SLIME -> drawSlimeBody(cx, y, r, col(Color(0xFF4ADE80)), Color(0xFF166534), dir, crown = false, spikes = false)
         EnemyKind.PINK_SLIME -> drawSlimeBody(cx, y, r, col(Color(0xFFF472B6)), Color(0xFF9D174D), dir, crown = false, spikes = false, heart = true)
         EnemyKind.SPIKE_SLIME -> drawSlimeBody(cx, y, r, col(Color(0xFF94A3B8)), Color(0xFF334155), dir, crown = false, spikes = true)
+        EnemyKind.MINI_SLIME -> drawSlimeBody(cx, y, r, col(Color(0xFF86EFAC)), Color(0xFF166534), dir, crown = false, spikes = false)
         EnemyKind.BEETLE -> drawBeetle(cx, y, r, col(Color(0xFFFB923C)), Color(0xFF9A3412), dir)
         EnemyKind.BAT -> drawBat(cx, y, r, col(Color(0xFF64748B)), Color(0xFF1E293B), dir)
         EnemyKind.SKELETON -> drawSkeleton(cx, y, r, col(Color(0xFFE2E8F0)), Color(0xFF64748B), dir)

@@ -43,6 +43,7 @@ enum class EnemySignatureAttack(
 }
 
 fun EnemyKind.signatureAttack(): EnemySignatureAttack = when (this) {
+    EnemyKind.MINI_SLIME -> EnemySignatureAttack.NONE
     EnemyKind.SLIME -> EnemySignatureAttack.SLIME_POUNCE
     EnemyKind.PINK_SLIME -> EnemySignatureAttack.PINK_BURST
     EnemyKind.SPIKE_SLIME -> EnemySignatureAttack.SPIKE_VOLLEY

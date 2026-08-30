@@ -630,7 +630,7 @@ class ArenaSim(
             tickCastFx(dt * 0.4f)
             tickEchoPulses(dt * 0.4f)
             // squash still eases during freeze
-            for (e in enemies) {
+            for (e in enemies.toList()) {
                 if (e.squash > 0f) e.squash = max(0f, e.squash - dt * 3.5f)
             }
             return
@@ -676,7 +676,7 @@ class ArenaSim(
         if (playerInvuln > 0f) playerInvuln -= d
         if (slashFx > 0f) slashFx -= d * 3.5f
         if (healPulse > 0f) healPulse -= d
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.squash > 0f) e.squash = max(0f, e.squash - d * 6f)
             if (e.hitStun > 0f) e.hitStun -= d
             if (e.hitFlash > 0f) e.hitFlash -= d
@@ -1074,7 +1074,7 @@ class ArenaSim(
                 HeroClass.MAGE -> 1.4f + wave * 0.22f
                 HeroClass.TAOIST -> 1.35f + wave * 0.2f
             } * sm
-            for (e in enemies) {
+            for (e in enemies.toList()) {
                 if (e.dead) continue
                 damageEnemy(e, player.atk * mul, heavy = wave == 0)
                 when (hero) {
@@ -1256,6 +1256,7 @@ class ArenaSim(
             } else EnemyEliteTrait.NONE
             val kindMulHp = when (we.kind) {
                 EnemyKind.SPIKE_SLIME -> 1.35f
+                EnemyKind.MINI_SLIME -> 0.5f
                 EnemyKind.BEETLE, EnemyKind.SKELETON -> 1.3f
                 EnemyKind.GOBLIN -> 1.15f
                 EnemyKind.BAT, EnemyKind.RAT -> 0.95f
@@ -1265,6 +1266,7 @@ class ArenaSim(
             }
             val kindMulAtk = when (we.kind) {
                 EnemyKind.GOBLIN, EnemyKind.BEETLE -> 1.22f
+                EnemyKind.MINI_SLIME -> 0.55f
                 EnemyKind.WISP, EnemyKind.BAT -> 1.18f
                 EnemyKind.SKELETON -> 1.15f
                 EnemyKind.BOSS_SLIME, EnemyKind.BOSS_ORE -> 1.28f
@@ -1273,6 +1275,7 @@ class ArenaSim(
             }
             val kindMulSpd = when (we.kind) {
                 EnemyKind.RAT, EnemyKind.BAT -> 1.22f
+                EnemyKind.MINI_SLIME -> 1.25f
                 EnemyKind.GOBLIN -> 1.14f
                 EnemyKind.SPIKE_SLIME -> 0.92f
                 EnemyKind.BEETLE -> 1.08f
@@ -1280,6 +1283,7 @@ class ArenaSim(
             }
             val kindArmor = when (we.kind) {
                 EnemyKind.SPIKE_SLIME -> 0.18f
+                EnemyKind.MINI_SLIME -> 0.02f
                 EnemyKind.BEETLE -> 0.22f
                 EnemyKind.SKELETON -> 0.14f
                 EnemyKind.BOSS_SLIME, EnemyKind.BOSS_ORE -> 0.2f
@@ -1435,7 +1439,7 @@ class ArenaSim(
         rings.add(RingFx(player.x, player.y, 140f * u, 0.45f, 0.45f, 0xFFFB923C))
         rings.add(RingFx(player.x, player.y, 90f * u, 0.4f, 0.4f, 0xFFFBBF24))
         var hits = 0
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             val d0 = dist(player.x, player.y, e.x, e.y)
             if (d0 <= 140f * u + e.radius) {
@@ -1476,7 +1480,7 @@ class ArenaSim(
         // 爆心火星 + 余焰双层飞散
         shardBurst(tx, ty, 16, 0xFFFF8C42, 380f * u, 0.55f, 22f * u)
         shardBurst(tx, ty, 9, 0xFFFBBF24, 230f * u, 0.45f, 14f * u)
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             if (dist(tx, ty, e.x, e.y) <= 132f * u + e.radius) {
                 damageEnemy(e, player.atk * 2.6f * sm, heavy = true)
@@ -1508,7 +1512,7 @@ class ArenaSim(
                 float(cx, cy - 36f, "镇符!", 167, 139, 250, 1.25f)
         // 镇印迸裂：紫墨向四周压出
         shardBurst(cx, cy, 10, 0xFFC4B5FD, 290f * u, 0.42f, 16f * u)
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             if (dist(cx, cy, e.x, e.y) <= 120f * u + e.radius) {
                 damageEnemy(e, player.atk * 1.3f * sm)
@@ -1679,7 +1683,7 @@ class ArenaSim(
         val dmgMul = mul * (if (heavy) 1.55f else 1f) * (1f + player.powerOf(StatusType.RAGE)) *
             (1f + min(0.55f, comboCount * mods.comboDmgPerStack))
         var hits = 0
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             val dx = e.x - player.x
             val dy = e.y - player.y
@@ -1719,7 +1723,7 @@ class ArenaSim(
         for (i in 0..2) {
             val rr = (90f + i * 55f) * u
             rings.add(RingFx(player.x, player.y, rr, 0.5f - i * 0.08f, 0.5f - i * 0.08f, 0xFFFBBF24))
-            for (e in enemies) {
+            for (e in enemies.toList()) {
                 if (e.dead) continue
                 val d0 = dist(player.x, player.y, e.x, e.y)
                 if (d0 <= rr + e.radius) {
@@ -1757,7 +1761,7 @@ class ArenaSim(
         // 冲锋笔触拖痕：起→终一条亮线 + 沿途碎片
         bolts.add(BoltFx(startX, startY, player.x, player.y, 0.22f, 0.22f, 0xFFFFC98A))
         shardBurst(player.x, player.y, 6, 0xFFFCA5A5, 200f * u, 0.3f, 13f * u, ang + 3.14159f, 1.2f, 4f)
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             if (dist(player.x, player.y, e.x, e.y) < player.radius + e.radius + 48f * u) {
                 damageEnemy(e, player.atk * 1.7f, heavy = true)
@@ -1874,7 +1878,7 @@ class ArenaSim(
         rings.add(RingFx(player.x, player.y, rr, 0.55f, 0.55f, 0xFFA3E635))
         rings.add(RingFx(player.x, player.y, rr * 0.6f, 0.45f, 0.45f, 0xFF65A30D))
         var n = 0
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             if (dist(player.x, player.y, e.x, e.y) <= rr + e.radius) {
                 // power = HP lost per second while poisoned
@@ -2217,7 +2221,7 @@ class ArenaSim(
                     rings.add(RingFx(f.x, f.y, f.r * 0.5f, 0.2f, 0.2f, 0xFF86EFAC))
                 }
             }
-            for (e in enemies) {
+            for (e in enemies.toList()) {
                 if (e.dead) continue
                 if (dist(f.x, f.y, e.x, e.y) <= f.r + e.radius) {
                     e.hp -= f.dps * d
@@ -2948,7 +2952,7 @@ class ArenaSim(
                 if (s.style == 6 && s.life < 0.08f) {
                     leaveInkWash(s.x, s.y, s.splash.coerceAtLeast(40f * u) * 0.55f, life = 14f, color = 0x552C1810)
                     leaveInkDots(s.x, s.y, 8)
-                    for (e in enemies) {
+                    for (e in enemies.toList()) {
                         if (e.dead) continue
                         if (dist(s.x, s.y, e.x, e.y) <= s.splash + e.radius) {
                             damageEnemy(e, s.dmg, heavy = true)
@@ -2957,7 +2961,7 @@ class ArenaSim(
                     }
                     removed = true
                 }
-                for (e in enemies) {
+                for (e in enemies.toList()) {
                     if (removed || e.dead) continue
                     if (hitCircle(s.x, s.y, s.r, e.x, e.y, e.radius)) {
                         damageEnemy(e, s.dmg)
@@ -3233,6 +3237,20 @@ class ArenaSim(
             float(player.x, player.y - player.radius - 30f, title, 251, 146, 60, 1.45f)
             addUlt(8f)
         }
+        // 连杀冲击波：每 12 连击自动放一圈墨气爆，爽感与清场奖励
+        if (comboCount > 0 && comboCount % 12 == 0) {
+            rings.add(RingFx(player.x, player.y, 230f * u, 0.42f, 0.42f, 0xFFEF4444))
+            float(player.x, player.y - player.radius - 46f, "墨气爆!", 239, 68, 68, 1.3f)
+            shake = max(shake, 0.32f)
+            impactFlash = max(impactFlash, 0.18f)
+            hapticEvent = max(hapticEvent, 3)
+            for (e2 in enemies.toList()) {
+                if (e2.dead) continue
+                if (dist(player.x, player.y, e2.x, e2.y) <= 225f * u + e2.radius) {
+                    damageEnemy(e2, player.atk * 1.2f, heavy = true)
+                }
+            }
+        }
         if (crit) float(e.x, e.y - e.radius - 12f, "暴击 ${dmg.toInt()}", 250, 204, 21, 1.55f)
         else float(e.x, e.y - e.radius - 6f, "${dmg.toInt()}", 255, 255, 255, 1.25f)
         if (comboCount >= 3 && comboCount % 2 == 1) {
@@ -3319,6 +3337,29 @@ class ArenaSim(
         e.dead = true
         e.hp = 0f
         e.squash = 1f
+        // 棘壳病毒裂变：非燃烧击杀会裂成两只芽孢体（用火属性/点燃可阻止）——击杀顺序成为决策
+        if (e.kind == EnemyKind.SPIKE_SLIME && !e.has(StatusType.BURN) && enemies.count { !it.dead } < 14) {
+            repeat(2) { i ->
+                val hp = e.maxHp * 0.32f
+                val rr = EnemyKind.MINI_SLIME.baseRadius() * u
+                enemies.add(
+                    Actor(
+                        x = (e.x + (if (i == 0) -1 else 1) * e.radius * 0.9f).coerceIn(pad + rr, width - pad - rr),
+                        y = e.y.coerceIn(pad + rr, height - pad - rr),
+                        hp = hp, maxHp = hp,
+                        radius = rr,
+                        atk = e.atk * 0.55f,
+                        speed = e.speed * 1.2f,
+                        isPlayer = false,
+                        attackCd = 0.5f, supportCd = 3f, specialCd = 3f,
+                        kind = EnemyKind.MINI_SLIME, element = EnemyKind.MINI_SLIME.element(),
+                        ai = EnemyAi.CHASE, elite = false, eliteTrait = EnemyEliteTrait.NONE,
+                        thorns = 0f, armor = 0f
+                    )
+                )
+            }
+            float(e.x, e.y - e.radius - 18f, "裂变!", 148, 163, 184, 1.25f)
+        }
         // 击杀回蓝：奖励积极进攻（法师双发/技能循环的燃料）
         mp = min(maxMp, mp + 3f)
         if (combatProc == GearProc.KILL_SHIELD && gearProcCooldown <= 0f) {
@@ -3583,7 +3624,7 @@ class ArenaSim(
     private fun nearestEnemy(): Actor? {
         var best: Actor? = null
         var bestD = Float.MAX_VALUE
-        for (e in enemies) {
+        for (e in enemies.toList()) {
             if (e.dead) continue
             val d = dist(player.x, player.y, e.x, e.y)
             if (d < bestD) {
