@@ -141,6 +141,9 @@ data class SlashArcFx(
     val width: Float,
     val spin: Float
 )
+
+/** 战场地形：圆形免疫组织块，阻挡弹体与走位 */
+data class Obstacle(val x: Float, val y: Float, val r: Float)
 data class SkillCastFx(
     var x: Float,
     var y: Float,
@@ -304,6 +307,11 @@ class ArenaSim(
     val bolts = ArrayList<BoltFx>(16)
     val shards = ArrayList<ShardFx>(48)
     val slashArcs = ArrayList<SlashArcFx>(12)
+    val obstacles = ArrayList<Obstacle>(4)
+    /** 当前波次修饰符（HUD 与波次横幅显示） */
+    var waveMod: WaveMod = WaveMod.NONE
+        private set
+    private var terrainReady = false
     val echoPulses = ArrayList<EchoPulseFx>(12)
     val bossHazards = ArrayList<BossHazard>(24)
     val particles = ArrayList<Particle>(128)
@@ -662,6 +670,11 @@ class ArenaSim(
         tickCastFx(d)
         tickEchoPulses(d)
 
+        if (!terrainReady) {
+            terrainReady = true
+            if (bossEncounter == null) generateTerrain()
+        }
+
         // snappy move: direct velocity from stick (no laggy accel)
         val slow = if (player.has(StatusType.SLOW) || player.has(StatusType.FREEZE)) 0.5f else 1f
         val frenzySpd = if (frenzyT > 0f) 1.18f else 1f
@@ -685,6 +698,7 @@ class ArenaSim(
         }
         player.x = (player.x + player.vx * d).coerceIn(pad + player.radius, width - pad - player.radius)
         player.y = (player.y + player.vy * d).coerceIn(pad + player.radius, height - pad - player.radius)
+        resolveObstacles(player)
 
         if (!player.dead) {
             // hold-to-fire basic; one-shot skills on press edge handled by caller via held flags
@@ -1205,8 +1219,18 @@ class ArenaSim(
     private fun spawnWave(idx: Int) {
         enemies.clear()
         val wave = waveList[idx]
+        waveMod = WaveMod.roll(idx, prng)
         val tm = threatMul(idx)
-        for (we in wave.enemies) {
+        // 蜂拥：增援两只半血小怪
+        val roster = if (waveMod == WaveMod.SWARM) {
+            wave.enemies + List(2) {
+                wave.enemies.first().copy(hp = wave.enemies.first().hp * 0.55f)
+            }
+        } else wave.enemies
+        val modHp = if (waveMod == WaveMod.TOUGH) 1.25f else 1f
+        val modAtk = if (waveMod == WaveMod.FRENZIED) 1.18f else 1f
+        val modSpd = if (waveMod == WaveMod.SWIFT) 1.18f else 1f
+        for (we in roster) {
             val elite = we.elite || (
                 idx >= 2 && prng.nextFloat() <
                     (eliteSpawnChance(threatLevel) + mods.eliteChanceBonus).coerceAtMost(0.48f)
@@ -1256,12 +1280,12 @@ class ArenaSim(
                 else -> 1f
             }
             val traitArmor = if (eliteTrait == EnemyEliteTrait.BULWARK) 0.08f else 0f
-            val hp = we.hp * tm * kindMulHp * eliteHp * traitHp * 1.12f * mods.enemyHpMul *
+            val hp = we.hp * tm * kindMulHp * eliteHp * traitHp * 1.12f * modHp * mods.enemyHpMul *
                 (roomTrial?.enemyHpMul ?: 1f)
-            val atk = we.atk * tm * kindMulAtk * eliteAtk * traitAtk * 1.12f * mods.enemyAtkMul *
+            val atk = we.atk * tm * kindMulAtk * eliteAtk * traitAtk * 1.12f * modAtk * mods.enemyAtkMul *
                 (roomTrial?.enemyAtkMul ?: 1f)
             val spd = we.speed * u * kindMulSpd * enemySpeedThreatMultiplier(threatLevel) *
-                (if (elite) 1.1f else 1f) * traitSpd * mods.enemySpdMul *
+                (if (elite) 1.1f else 1f) * traitSpd * modSpd * mods.enemySpdMul *
                 (roomTrial?.enemySpeedMul ?: 1f)
             enemies.add(
                 Actor(
@@ -1311,6 +1335,8 @@ class ArenaSim(
             roles.size == 1 -> roles.first().hint
             else -> "战术目标：${roles.joinToString(" / ") { "${it.badge}${it.title}" }}"
         }
+        // 出生位置避开地形块
+        enemies.forEach { resolveObstacles(it) }
     }
 
     private fun castSkill(slot: Int) {
@@ -2022,6 +2048,35 @@ class ArenaSim(
         }
     }
 
+    /** 战场地形：免疫组织块（Boss 房保持空旷；避开上缘出怪带与玩家出生区） */
+    private fun generateTerrain() {
+        val n = 2 + prng.nextInt(2)
+        var guard = 0
+        while (obstacles.size < n && guard++ < 50) {
+            val r = (46f + prng.nextFloat() * 30f) * u
+            val x = width * (0.24f + prng.nextFloat() * 0.52f)
+            val y = height * (0.30f + prng.nextFloat() * 0.42f)
+            if (y < height * 0.26f + r) continue
+            if (dist(x, y, width * 0.5f, height * 0.85f) < r + 100f * u) continue
+            if (obstacles.any { dist(x, y, it.x, it.y) < r + it.r + 80f * u }) continue
+            obstacles.add(Obstacle(x, y, r))
+        }
+    }
+
+    private fun resolveObstacles(a: Actor) {
+        for (o in obstacles) {
+            val dx = a.x - o.x
+            val dy = a.y - o.y
+            val d = sqrt(dx * dx + dy * dy)
+            val minD = o.r + a.radius
+            if (d < minD) {
+                val dd = d.coerceAtLeast(1f)
+                a.x = (o.x + dx / dd * minD).coerceIn(pad + a.radius, width - pad - a.radius)
+                a.y = (o.y + dy / dd * minD).coerceIn(pad + a.radius, height - pad - a.radius)
+            }
+        }
+    }
+
     private fun updateFields(d: Float) {
         updateSlashFx(d)
         var i = 0
@@ -2070,6 +2125,7 @@ class ArenaSim(
         while (ei < enemies.size) {
             val e = enemies[ei++]
             if (e.dead) continue
+            resolveObstacles(e)
             tickStatuses(e, d)
             if (e.attackCd > 0f) e.attackCd -= d
             if (e.supportCd > 0f) e.supportCd -= d
@@ -2755,6 +2811,16 @@ class ArenaSim(
                 leaveInkStroke(ox, oy, s.x, s.y, s.r * 0.9f, life = 8f + prng.nextFloat() * 4f, color = col)
             }
             var removed = false
+            // 战场地形阻挡：免疫组织块吞掉弹体（陨星从天而降不受阻）
+            if (s.style != 6) {
+                for (o in obstacles) {
+                    if (dist(s.x, s.y, o.x, o.y) < o.r) {
+                        burst(s.x, s.y, 4, 0x88A8A29E, 70f * u, 0.2f)
+                        removed = true
+                        break
+                    }
+                }
+            }
             if (s.fromPlayer) {
                 // meteors explode on ground arrival
                 if (s.style == 6 && s.life < 0.08f) {

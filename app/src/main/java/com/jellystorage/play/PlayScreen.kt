@@ -481,11 +481,13 @@ fun PlayScreen(modifier: Modifier = Modifier) {
                         }
                         if (sim.waveIndex != waveBefore) {
                             val node = currentNode(meta)
-                            meta.arenaBanner = StoryBook.combatTaunt(
+                            val mod = sim.waveMod
+                            val modTxt = if (mod != WaveMod.NONE) "【${mod.title}·${mod.desc}】" else ""
+                            meta.arenaBanner = modTxt + (StoryBook.combatTaunt(
                                 node?.type ?: NodeType.MOB,
                                 sim.waveIndex,
                                 sim.waveTotal
-                            ) ?: "新的一波。"
+                            ) ?: "新的一波。")
                             meta.arenaBannerT = 2.4f
                         }
                         val tacticalHint = sim.consumeTacticalHintLine()
@@ -3591,6 +3593,15 @@ private fun DrawScope.drawArena(
         { x -> wx(x) }, { y -> wy(y) }, { r -> wr(r) }
     )
 
+    // 战场地形：免疫组织块（挡弹体、可绕行）
+    for (o in sim.obstacles) {
+        val ox = wx(o.x); val oy = wy(o.y); val or = wr(o.r)
+        drawCircle(Color(0xFF2C4638), or, Offset(ox, oy))
+        drawCircle(Color(0xFF3B5A48), or * 0.84f, Offset(ox - or * 0.08f, oy - or * 0.1f))
+        drawCircle(Color(0x24FFFFFF), or * 0.3f, Offset(ox - or * 0.26f, oy - or * 0.3f))
+        drawCircle(Color(0xFF16241D), or, Offset(ox, oy), style = Stroke(3f))
+    }
+
     // 墨迹残留层（在角色脚下，战斗中累积，清场可成画）
     drawInkMarkLayer(
         sim.inkMarks, sim.inkSettled, sim.inkSettleT,
@@ -4170,7 +4181,8 @@ private fun DrawScope.drawArena(
     val eqW = meta.equippedWeapon()
     title(
         tm,
-        "波${sim.waveIndex + 1}/${sim.waveTotal} · ${eqW.name}",
+        "波${sim.waveIndex + 1}/${sim.waveTotal} · ${eqW.name}" +
+            if (sim.waveMod != WaveMod.NONE) " · 【${sim.waveMod.title}】" else "",
         w * 0.50f, hudTop + 4f, Color(0xFFE7C98A), 11.sp
     )
     if (meta.coreInkRanks.isNotEmpty()) {
