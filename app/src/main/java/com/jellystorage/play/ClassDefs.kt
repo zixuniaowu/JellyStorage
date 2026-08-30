@@ -18,7 +18,7 @@ enum class HeroClass(
         "战士",
         "斩冲盾风裂 · 五行武器",
         Color(0xFFEF4444),
-        baseHp = 270f, baseMp = 100f, baseSpeed = 250f, baseAtk = 28f,
+        baseHp = 290f, baseMp = 100f, baseSpeed = 250f, baseAtk = 28f,
         attackRange = 102f, attackInterval = 0.30f, style = AttackStyle.MELEE_SLASH
     ),
     MAGE(
@@ -62,14 +62,14 @@ fun skillsFor(hero: HeroClass): List<SkillDef> = when (hero) {
         SkillDef(SkillSlot.S1, "冲锋", "冲", 4.2f, 16f, "突进重创·短无敌", 2),
         SkillDef(SkillSlot.S2, "铁壁", "盾", 6.5f, 18f, "护盾+反伤", 4),
         SkillDef(SkillSlot.S3, "旋风斩", "风", 4.8f, 20f, "自身周围旋斩多段", 6),
-        SkillDef(SkillSlot.ULT, "墨马·裂地", "马", 11f, 34f, "必杀：全屏墨马奔袭·重创", 8)
+        SkillDef(SkillSlot.ULT, "裂地斩", "裂", 10f, 30f, "必杀：震地三环·狂化护体", 8)
     )
     HeroClass.MAGE -> listOf(
         SkillDef(SkillSlot.BASIC, "火球", "火", 0.42f, 0f, "火球溅射·点燃", 1),
         SkillDef(SkillSlot.S1, "魔法盾", "盾", 9f, 24f, "法盾护体·受击迟缓来敌", 1),
         SkillDef(SkillSlot.S2, "链雷", "雷", 5.0f, 24f, "全屏雷暴·连锁所有敌人", 2),
         SkillDef(SkillSlot.S3, "炎爆", "爆", 5.5f, 26f, "目标点范围大爆炸", 6),
-        SkillDef(SkillSlot.ULT, "墨马·流火", "马", 11f, 40f, "必杀：全屏墨马·附燃", 8)
+        SkillDef(SkillSlot.ULT, "陨星雨", "陨", 11f, 38f, "必杀：天降陨星·群体灼烧", 8)
     )
     HeroClass.TAOIST -> listOf(
         SkillDef(SkillSlot.BASIC, "三符", "符", 0.38f, 0f, "三道灵符·命中回血", 1),

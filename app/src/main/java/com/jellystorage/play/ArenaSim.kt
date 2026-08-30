@@ -1427,7 +1427,7 @@ class ArenaSim(
                 1 -> warriorDash(target)
                 2 -> warriorIronWall()
                 3 -> warriorWhirl(sm)
-                4 -> castInkHorse(sm)
+                4 -> warriorQuake()
             }
             HeroClass.MAGE -> when (slot) {
                 0 -> {
@@ -1440,7 +1440,7 @@ class ArenaSim(
                 1 -> manaShield()
                 2 -> chainLightning(target)
                 3 -> fireBlast(target, sm)
-                4 -> castInkHorse(sm)
+                4 -> meteorRain(target)
             }
             HeroClass.TAOIST -> when (slot) {
                 0 -> talismanFan(target)
@@ -1750,6 +1750,9 @@ class ArenaSim(
         if (heavy && hits > 0) {
             float(player.x, player.y - 60f, "重斩!", 251, 146, 60, 1.1f)
             shake = max(shake, 0.14f)
+            // 重斩吸血：战士的续航符号（4% 最大生命）
+            healPlayer(player.maxHp * 0.04f)
+            float(player.x, player.y - 78f, "气血回涌", 134, 239, 172, 0.9f)
         }
         if (hits == 0) {
             burst(player.x + cos(ang) * range * 0.6f, player.y + sin(ang) * range * 0.6f, 4, 0x44FFFFFF, 40f * u, 0.2f)
@@ -2974,6 +2977,21 @@ class ArenaSim(
             val oy = s.y
             s.x += s.vx * d
             s.y += s.vy * d
+            // 灵符飘移：道士的符会轻微转向追踪最近的敌人（与法师直线彗星区分）
+            if (s.fromPlayer && s.style == 2) {
+                nearestEnemy()?.let { tgt ->
+                    val want = atan2(tgt.y - s.y, tgt.x - s.x)
+                    val curA = atan2(s.vy, s.vx)
+                    var da = want - curA
+                    while (da > PI) da -= (2 * PI).toFloat()
+                    while (da < -PI) da += (2 * PI).toFloat()
+                    val turn = 1.5f * d
+                    val na = curA + da.coerceIn(-turn, turn)
+                    val sp2 = sqrt(s.vx * s.vx + s.vy * s.vy)
+                    s.vx = cos(na) * sp2
+                    s.vy = sin(na) * sp2
+                }
+            }
             // 飞行中留下墨线，不是一串球
             if (s.fromPlayer && (si + (time * 40f).toInt()) % 2 == 0) {
                 val col = when (s.style) {

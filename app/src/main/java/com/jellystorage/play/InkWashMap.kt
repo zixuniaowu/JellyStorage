@@ -560,6 +560,9 @@ fun stagesForRun(seed: Long, inkRank: Int): List<StageDef> {
 private fun scaleStage(st: StageDef, mul: Float, seed: Long, inkRank: Int): StageDef {
     val rng = Random(seed)
     val title = if (inkRank > 0) "${st.title} · 变异$inkRank" else st.title
+    // 前两章 mercy 曲线：头两关是新手第一印象，压低敌人数值
+    val mercyHp = when (st.id) { 0 -> 0.8f; 1 -> 0.9f; else -> 1f }
+    val mercyAtk = when (st.id) { 0 -> 0.85f; 1 -> 0.92f; else -> 1f }
     return st.copy(
         title = title,
         tip = if (inkRank > 0) "变异第${inkRank}代 · 敌人更强 · 掉落更丰" else st.tip,
@@ -577,8 +580,8 @@ private fun scaleStage(st: StageDef, mul: Float, seed: Long, inkRank: Int): Stag
                 waves = n.waves.map { w ->
                     WaveDef(w.enemies.map { e ->
                         e.copy(
-                            hp = e.hp * mul * (0.96f + rng.nextFloat() * 0.08f),
-                            atk = e.atk * mutationAtkScale(inkRank) * (0.97f + rng.nextFloat() * 0.06f)
+                            hp = e.hp * mul * mercyHp * (0.96f + rng.nextFloat() * 0.08f),
+                            atk = e.atk * mutationAtkScale(inkRank) * mercyAtk * (0.97f + rng.nextFloat() * 0.06f)
                         )
                     })
                 },
