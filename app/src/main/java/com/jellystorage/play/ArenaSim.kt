@@ -1260,8 +1260,8 @@ class ArenaSim(
         val tm = threatMul(idx)
         // 蜂拥：增援两只半血小怪
         val roster = if (waveMod == WaveMod.SWARM) {
-            wave.enemies + List(2) {
-                wave.enemies.first().copy(hp = wave.enemies.first().hp * 0.55f)
+            wave.enemies + List(1) {
+                wave.enemies.first().copy(hp = wave.enemies.first().hp * 0.45f)
             }
         } else wave.enemies
         val modHp = if (waveMod == WaveMod.TOUGH) 1.25f else 1f
@@ -3016,6 +3016,10 @@ class ArenaSim(
                         damageEnemy(e, s.dmg)
                         s.status?.let { e.applyStatus(it, s.statusT, s.statusPow) }
                         if (s.style == 3) e.applyStatus(StatusType.VULN, 2.5f, 0.15f)
+                        // 灵符命中回血：道士普攻自带微续航（对应技能说明）
+                        if (s.style == 2 && player.hp < player.maxHp) {
+                            healPlayer(player.maxHp * 0.012f)
+                        }
                         // fireball splash
                         if (s.splash > 0f) {
                             rings.add(RingFx(s.x, s.y, s.splash, 0.28f, 0.28f, 0xFFFF6B35))
@@ -3376,8 +3380,10 @@ class ArenaSim(
         e.dead = true
         e.hp = 0f
         e.squash = 1f
-        // 棘壳病毒裂变：非燃烧击杀会裂成两只芽孢体（用火属性/点燃可阻止）——击杀顺序成为决策
-        if (e.kind == EnemyKind.SPIKE_SLIME && !e.has(StatusType.BURN) && enemies.count { !it.dead } < 14) {
+        // 棘壳病毒裂变：第二章（威胁≥8）起才生效；非燃烧击杀裂成两只芽孢体（用火可阻止）
+        if (e.kind == EnemyKind.SPIKE_SLIME && threatLevel >= 8 &&
+            !e.has(StatusType.BURN) && enemies.count { !it.dead } < 14
+        ) {
             repeat(2) { i ->
                 val hp = e.maxHp * 0.32f
                 val rr = EnemyKind.MINI_SLIME.baseRadius() * u

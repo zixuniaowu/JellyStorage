@@ -17,8 +17,8 @@ enum class WaveMod(
     companion object {
         private val pool = listOf(SWIFT, FRENZIED, TOUGH, SWARM)
 
-        /** 首波必无修饰符（新手第一场保持干净）；之后 70% 概率出 */
+        /** 前两波保持干净（新手第一场平稳过渡）；第三波起 70% 概率出 */
         fun roll(idx: Int, rng: Random): WaveMod =
-            if (idx <= 0 || rng.nextFloat() < 0.30f) NONE else pool[rng.nextInt(pool.size)]
+            if (idx <= 1 || rng.nextFloat() < 0.30f) NONE else pool[rng.nextInt(pool.size)]
     }
 }

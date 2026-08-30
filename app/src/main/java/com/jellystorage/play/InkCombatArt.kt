@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -12,6 +13,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
+import kotlin.math.atan2
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
@@ -479,13 +481,41 @@ fun DrawScope.drawInkProjectile(
     }
     // 主笔：前粗后细感用两笔
     drawLine(InkDark.copy(alpha = 0.4f * alpha), Offset(prevX, prevY), Offset(x, y), radius * 2.2f, StrokeCap.Round)
-    drawLine(core.copy(alpha = 0.75f * alpha), Offset(prevX, prevY), Offset(x, y), radius * 1.1f, StrokeCap.Round)
-    // 尖端只一点，不要大球
-    drawCircle(core.copy(alpha = 0.9f * alpha), radius * 0.45f, Offset(x, y))
-    if (style == 2) {
-        // 符：短竖笔+一横
-        drawLine(Cinnabar.copy(alpha = 0.8f * alpha), Offset(x, y - radius), Offset(x, y + radius * 0.6f), 2.2f, StrokeCap.Round)
-        drawLine(Cinnabar.copy(alpha = 0.7f * alpha), Offset(x - radius * 0.5f, y - radius * 0.2f), Offset(x + radius * 0.5f, y - radius * 0.2f), 1.8f, StrokeCap.Round)
+    when (style) {
+        1 -> {
+            // 法师火球：彗星——焰尾渐宽 + 跳动大弹头
+            val ang = atan2(y - prevY, x - prevX)
+            val flick = 0.85f + 0.3f * sin(x * 0.11f + y * 0.07f)
+            drawLine(Color(0xFFFFB25E).copy(alpha = 0.5f * alpha), Offset(prevX, prevY), Offset(x, y), radius * 1.5f * flick, StrokeCap.Round)
+            drawCircle(core.copy(alpha = 0.95f * alpha), radius * 0.6f * flick, Offset(x, y))
+            drawCircle(Color(0xFFFFE0A3).copy(alpha = 0.9f * alpha), radius * 0.3f * flick, Offset(x, y))
+        }
+        2 -> {
+            // 道士灵符：旋转的符纸方片 + 朱砂符文（与法师圆球完全区分）
+            val ang = atan2(y - prevY, x - prevX) + 9f * x * 0.05f
+            rotate(degrees = ang * 57.29578f, pivot = Offset(x, y)) {
+                drawRoundRect(
+                    Color(0xFFF5EBD4).copy(alpha = 0.95f * alpha),
+                    Offset(x - radius * 0.55f, y - radius * 0.75f),
+                    Size(radius * 1.1f, radius * 1.5f),
+                    CornerRadius(1.5f)
+                )
+                drawRoundRect(
+                    Cinnabar.copy(alpha = 0.85f * alpha),
+                    Offset(x - radius * 0.55f, y - radius * 0.75f),
+                    Size(radius * 1.1f, radius * 1.5f),
+                    CornerRadius(1.5f),
+                    style = Stroke(1.4f)
+                )
+                drawLine(Cinnabar.copy(alpha = 0.8f * alpha), Offset(x, y - radius * 0.5f), Offset(x, y + radius * 0.45f), 1.6f, StrokeCap.Round)
+                drawLine(Cinnabar.copy(alpha = 0.7f * alpha), Offset(x - radius * 0.32f, y - radius * 0.1f), Offset(x + radius * 0.32f, y - radius * 0.1f), 1.4f, StrokeCap.Round)
+            }
+            drawLine(Color(0xFF86EFAC).copy(alpha = 0.5f * alpha), Offset(prevX, prevY), Offset(x, y), radius * 0.8f, StrokeCap.Round)
+        }
+        else -> {
+            drawLine(core.copy(alpha = 0.75f * alpha), Offset(prevX, prevY), Offset(x, y), radius * 1.1f, StrokeCap.Round)
+            drawCircle(core.copy(alpha = 0.9f * alpha), radius * 0.45f, Offset(x, y))
+        }
     }
 }
 
