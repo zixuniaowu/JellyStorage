@@ -3351,7 +3351,13 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
 private fun DrawScope.drawLevelUp(meta: RunMeta, tm: TextMeasurer, w: Float, h: Float) {
     drawInkPaperBackdrop(w, h, meta.pulse, meta.stage().chapterIndex)
     drawInkWoodBar(w * 0.2f, h * 0.08f, w * 0.6f, h * 0.1f)
-    title(tm, "升级! Lv${meta.level}", w * 0.5f, h * 0.10f, Color(0xFFF5EBD4), 26.sp)
+    // 升级金色脉冲：呼吸感的背景光环
+    val pulse = 0.5f + 0.5f * sin(meta.pulse * 5f)
+    drawCircle(
+        Brush.radialGradient(listOf(Color(0x30FDE047), Color.Transparent)),
+        min(w, h) * (0.3f + pulse * 0.1f), Offset(w * 0.5f, h * 0.1f)
+    )
+    title(tm, "升级! Lv${meta.level}", w * 0.5f, h * 0.10f, Color(0xFFFDE047), 26.sp)
     title(tm, "选择一项天赋", w * 0.5f, h * 0.20f, Color(0xFF5C4033), 14.sp)
     meta.levelChoices.forEachIndexed { i, p ->
         val y = h * 0.32f + i * h * 0.14f
@@ -4269,6 +4275,18 @@ private fun DrawScope.drawArena(
     }
     // scene polish overlay
     drawArenaVignette(w, viewH)
+    // 低血警告：HP<25% 时红色暗角脉动 + HP<15% 时加重
+    val hpPct = if (sim.player.maxHp > 0f) sim.player.hp / sim.player.maxHp else 1f
+    if (hpPct < 0.25f && !sim.finished) {
+        val urgency = ((0.25f - hpPct) / 0.25f).coerceIn(0f, 1f)
+        val heartbeat = 0.5f + 0.5f * sin(sim.time * (8f + urgency * 6f))
+        val edgeAlpha = urgency * (0.12f + 0.14f * heartbeat)
+        // 四边红色暗角
+        drawRect(Brush.verticalGradient(listOf(Color(0x88EF4444).copy(alpha = edgeAlpha), Color.Transparent)), Offset(0f, 0f), Size(w, viewH * 0.12f))
+        drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color(0x88EF4444).copy(alpha = edgeAlpha)), startY = 0f, endY = 1f), Offset(0f, viewH * 0.88f), Size(w, viewH * 0.12f))
+        drawRect(Brush.horizontalGradient(listOf(Color(0x88EF4444).copy(alpha = edgeAlpha), Color.Transparent)), Offset(0f, 0f), Size(w * 0.08f, viewH))
+        drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color(0x88EF4444).copy(alpha = edgeAlpha)), startX = 0f, endX = 1f), Offset(w * 0.92f, 0f), Size(w * 0.08f, viewH))
+    }
     // impact flash overlays (after world)
     if (sim.impactFlash > 0.02f) {
         drawRect(Color.White.copy(alpha = (sim.impactFlash * 0.22f).coerceIn(0f, 0.28f)), size = Size(w, viewH))

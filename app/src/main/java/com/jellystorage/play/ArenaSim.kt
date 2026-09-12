@@ -790,6 +790,14 @@ class ArenaSim(
                 computeClearGrade()
                 grantClearLoot()
                 settleInkLandscape()
+                // 胜利庆祝：金色粒子喷泉 + 慢动作 + 冲击
+                slowMo = max(slowMo, 0.35f)
+                impactFlash = max(impactFlash, 0.4f)
+                shake = max(shake, 0.2f)
+                burst(player.x, player.y, 36, 0xFFFDE047, 320f * u, 0.7f, gravity = 260f * u)
+                burst(player.x, player.y, 20, 0xFF86EFAC, 260f * u, 0.6f, gravity = 200f * u)
+                float(player.x, player.y - 70f, "CLEAR!", 253, 224, 71, 1.6f)
+                hapticEvent = max(hapticEvent, 6)
             }
         }
     }
