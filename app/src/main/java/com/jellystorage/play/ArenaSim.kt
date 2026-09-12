@@ -369,6 +369,9 @@ class ArenaSim(
     /** 法师魔法盾剩余时间：盾期间受击迟缓来敌 */
     var manaShieldT: Float = 0f
         private set
+    /** 祭坛疾风增益：移速强化剩余时间 */
+    var speedBoostT: Float = 0f
+        private set
     var healPulse: Float = 0f
     var playerInvuln: Float = 0f
         private set
@@ -720,8 +723,9 @@ class ArenaSim(
             val mag = sm.coerceIn(0f, 1f)
             val nx = stickX / sm
             val ny = stickY / sm
-            player.vx = nx * player.speed * slow * mag * frenzySpd
-            player.vy = ny * player.speed * slow * mag * frenzySpd
+        val shrineSpd = if (speedBoostT > 0f) 1.25f else 1f
+        player.vx = nx * player.speed * slow * mag * frenzySpd * shrineSpd
+        player.vy = ny * player.speed * slow * mag * frenzySpd * shrineSpd
             player.facing = if (nx >= 0f) 1f else -1f
             moveHint = 0f
         } else {
@@ -2092,6 +2096,7 @@ class ArenaSim(
                 rings.add(RingFx(player.x, player.y, player.radius * 2.3f, 0.42f, 0.42f, 0xFF7DD3FC))
             }
         }
+        if (speedBoostT > 0f) speedBoostT -= d
         var i = 0
         while (i < shards.size) {
             val s = shards[i]
@@ -2153,7 +2158,9 @@ class ArenaSim(
         0 -> 0xFFFB923C
         1 -> 0xFF7DD3FC
         2 -> 0xFFA78BFA
-        else -> 0xFFFBBF24
+        3 -> 0xFFFBBF24
+        4 -> 0xFF38BDF8
+        else -> 0xFFC084FC
     }
 
     /** 中途动态事件：增益祭坛（限时抢夺）+ 侧翼增援（残敌时包抄） */
@@ -2214,7 +2221,7 @@ class ArenaSim(
             val y = height * (0.30f + prng.nextFloat() * 0.42f)
             if (obstacles.any { dist(x, y, it.x, it.y) < it.r + 50f * u }) continue
             if (dist(x, y, player.x, player.y) < 120f * u) continue
-            shrine = Shrine(x, y, 4.5f, 4.5f, prng.nextInt(4))
+            shrine = Shrine(x, y, 4.5f, 4.5f, prng.nextInt(6))
             float(x, y - 30f, "增益祭坛出现!", 253, 224, 71, 1.25f)
             rings.add(RingFx(x, y, 52f * u, 0.5f, 0.5f, 0xFFFDE047))
             shake = max(shake, 0.1f)
@@ -2960,6 +2967,11 @@ class ArenaSim(
                 float(e.x, e.y - e.radius - 6f, "缓", 125, 211, 252, 0.9f)
                 shardBurst(e.x, e.y, 3, 0xFFBAE6FD, 160f * u, 0.25f, 11f * u)
             }
+            // 血怒波次：命中你的敌人吸血回复
+            if (waveMod == WaveMod.BLOODTHIRST) {
+                e.hp = min(e.maxHp, e.hp + dealt * 0.3f)
+                float(e.x, e.y - e.radius - 2f, "+${(dealt * 0.3f).toInt()}", 220, 38, 38, 0.7f)
+            }
         }
         // spike / elite thorns when they bite you
         if (dealt > 0f && e.thorns > 0f) {
@@ -3425,6 +3437,29 @@ class ArenaSim(
         }
         // 击杀回蓝：奖励积极进攻（法师双发/技能循环的燃料）
         mp = min(maxMp, mp + 3f)
+        // 裂变波次：非 Boss/非裂变体死亡时裂成一只芽孢体（全场可能很乱——这正是乐趣）
+        if (waveMod == WaveMod.FISSION && e.kind != EnemyKind.MINI_SLIME &&
+            e.ai != EnemyAi.BOSS && enemies.count { !it.dead } < 14
+        ) {
+            val hp = e.maxHp * 0.22f
+            val rr = EnemyKind.MINI_SLIME.baseRadius() * u
+            enemies.add(
+                Actor(
+                    x = (e.x + prng.nextFloat() * 26f * u - 13f * u).coerceIn(pad + rr, width - pad - rr),
+                    y = e.y.coerceIn(pad + rr, height - pad - rr),
+                    hp = hp, maxHp = hp,
+                    radius = rr,
+                    atk = e.atk * 0.45f,
+                    speed = e.speed * 1.1f,
+                    isPlayer = false,
+                    attackCd = 0.4f, supportCd = 3f, specialCd = 3f,
+                    kind = EnemyKind.MINI_SLIME, element = EnemyKind.MINI_SLIME.element(),
+                    ai = EnemyAi.CHASE, elite = false, eliteTrait = EnemyEliteTrait.NONE,
+                    thorns = 0f, armor = 0f
+                )
+            )
+            float(e.x, e.y - e.radius - 14f, "裂变!", 167, 139, 250, 1.1f)
+        }
         if (combatProc == GearProc.KILL_SHIELD && gearProcCooldown <= 0f) {
             player.applyStatus(StatusType.SHIELD, 2.2f, player.maxHp * combatProcPower.coerceIn(0.08f, 0.22f))
             float(player.x, player.y - 40f, "杀意护盾", 251, 191, 36, 1.0f)
@@ -3435,10 +3470,10 @@ class ArenaSim(
         if (prng.nextFloat() < 0.16f + if (e.elite) 0.1f else 0f) {
             drops.add(Drop(e.x + 12f, e.y - 8f, gold = 0, kind = 1))
         }
-        // 普通怪主要掉金；装备聚焦精英/Boss，掉落才有期待感。
+        // 普通怪主要掉金；精英必掉装备（奖励感），Boss 高概率
         val lootChance = when {
             e.ai == EnemyAi.BOSS -> 0.70f
-            e.elite -> 0.30f
+            e.elite -> 1.0f
             else -> 0.04f
         } + mods.dropBonus
         if (prng.nextFloat() < lootChance) {

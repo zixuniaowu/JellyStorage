@@ -4023,22 +4023,35 @@ private fun DrawScope.drawArena(
             drawStatusEmblem(sx + 8f, ey - drawR - 12f, 7f, StatusEmblem.SLOW, t); sx += 18f
         }
         if (e.has(StatusType.VULN)) drawStatusEmblem(sx + 8f, ey - drawR - 12f, 7f, StatusEmblem.VULN, t)
-        val bw = drawR * 2.5f
+        val bw = drawR * (if (e.elite) 3.2f else 2.5f)
         val barY = ey - drawR * 1.55f
-        drawRoundRect(Color(0xCC0F172A), Offset(ex - bw / 2f - 1f, barY - 1f), Size(bw + 2f, 9f), CornerRadius(4f, 4f))
-        drawRoundRect(Color(0xFF334155), Offset(ex - bw / 2f, barY), Size(bw, 7f), CornerRadius(3f, 3f))
-        drawRoundRect(
-            Color(0xFFEF4444),
-            Offset(ex - bw / 2f, barY),
-            Size(bw * (e.hp / e.maxHp).coerceIn(0f, 1f), 7f),
-            CornerRadius(3f, 3f)
-        )
-        drawRoundRect(
-            Color.White.copy(alpha = 0.25f),
-            Offset(ex - bw / 2f, barY),
-            Size(bw * (e.hp / e.maxHp).coerceIn(0f, 1f), 2.5f),
-            CornerRadius(2f, 2f)
-        )
+        if (e.elite) {
+            // 精英怪：加宽血条 + 金色描边 + 名牌
+            drawRoundRect(Color(0xFFB45309), Offset(ex - bw / 2f - 2f, barY - 2f), Size(bw + 4f, 12f), CornerRadius(5f, 5f))
+            drawRoundRect(Color(0xFF1C1410), Offset(ex - bw / 2f, barY), Size(bw, 8f), CornerRadius(4f, 4f))
+            drawRoundRect(
+                Color(0xFFEF4444),
+                Offset(ex - bw / 2f, barY),
+                Size(bw * (e.hp / e.maxHp).coerceIn(0f, 1f), 8f),
+                CornerRadius(4f, 4f)
+            )
+            title(tm, "精英·${e.kind.displayName()}", ex, barY - 10f, Color(0xFFFBBF24), 8.sp)
+        } else {
+            drawRoundRect(Color(0xCC0F172A), Offset(ex - bw / 2f - 1f, barY - 1f), Size(bw + 2f, 9f), CornerRadius(4f, 4f))
+            drawRoundRect(Color(0xFF334155), Offset(ex - bw / 2f, barY), Size(bw, 7f), CornerRadius(3f, 3f))
+            drawRoundRect(
+                Color(0xFFEF4444),
+                Offset(ex - bw / 2f, barY),
+                Size(bw * (e.hp / e.maxHp).coerceIn(0f, 1f), 7f),
+                CornerRadius(3f, 3f)
+            )
+            drawRoundRect(
+                Color.White.copy(alpha = 0.25f),
+                Offset(ex - bw / 2f, barY),
+                Size(bw * (e.hp / e.maxHp).coerceIn(0f, 1f), 2.5f),
+                CornerRadius(2f, 2f)
+            )
+        }
     }
 
     val p = sim.player
