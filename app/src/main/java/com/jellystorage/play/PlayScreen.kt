@@ -3343,8 +3343,10 @@ private fun DrawScope.drawMap(meta: RunMeta, screen: Screen, tm: TextMeasurer, w
     }
     if (screen == Screen.STAGE_CLEAR) {
         drawRect(Color(0x88000000), size = Size(w, h))
-        drawParchmentPanel(w * 0.18f, h * 0.30f, w * 0.64f, h * 0.32f, radius = 18f, strokeCol = Color(0xCC4D7C0F))
-        title(tm, "关卡完成", w * 0.5f, h * 0.40f, Color(0xFF3F6212), 28.sp)
+        drawParchmentPanel(w * 0.18f, h * 0.24f, w * 0.64f, h * 0.44f, radius = 18f, strokeCol = Color(0xCC4D7C0F))
+        title(tm, meta.stage().title, w * 0.5f, h * 0.32f, Color(0xFF4ADE80), 18.sp)
+        title(tm, "关卡完成", w * 0.5f, h * 0.38f, Color(0xFF3F6212), 28.sp)
+        title(tm, "击杀 ${meta.kills} · 获得 ${meta.goldEarnedThisRun} 金 · Lv${meta.level}", w * 0.5f, h * 0.47f, Color(0xFFE7C98A), 13.sp)
         title(tm, "轻触继续", w * 0.5f, h * 0.52f, Color(0xFF5C4033), 14.sp)
     }
 }
