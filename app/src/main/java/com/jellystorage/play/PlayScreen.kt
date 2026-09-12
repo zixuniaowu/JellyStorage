@@ -2227,25 +2227,24 @@ private fun enterNode(
         }
         NodeType.TRAP -> {
             val dmg = node.trapDmg * meta.combatMods().dmgTakenMul
+            // 陷阱改为风险换奖励：硬扛满伤但捡走机关里的金，巧解半伤无收益
+            val loot = ((node.goldDrop.takeIf { it > 0 } ?: (8 + meta.inkRank * 2)) *
+                meta.combatMods().goldMul).toInt().coerceAtLeast(5)
             meta.eventTitle = node.name
             meta.eventBody = enterBeats.joinToString("\n") { "${it.speaker}：${it.line}" } +
-                "\n\n机关触发！可硬扛或试着巧解。"
+                "\n\n机关后似乎藏着${loot}金。硬扛取金，还是巧妙绕开？"
             meta.eventChoices = listOf(
-                "硬扛 (−${dmg.toInt()}HP)" to {
+                "硬扛机关（−${dmg.toInt()}HP · +${loot}金）" to {
                     meta.curHp = (meta.curHp - dmg).coerceAtLeast(1f)
-                    meta.addJournal("硬扛了${node.name}。")
-                },
-                "巧解（半伤，少金）" to {
-                    meta.curHp = (meta.curHp - dmg * 0.5f).coerceAtLeast(1f)
-                    val fee = 6 + meta.inkRank
-                    if (meta.gold >= fee) {
-                        meta.gold -= fee
-                        meta.toast = "巧解成功 −$fee 金"
-                    } else {
-                        meta.toast = "钱不够，还是挨了半下"
-                    }
+                    meta.gold += loot
+                    meta.goldEarnedThisRun += loot
+                    meta.addJournal("硬扛了${node.name}，捡走${loot}金。")
+                    meta.toast = "+$loot 金"
                     meta.toastT = 1.5f
-                    meta.addJournal("巧解${node.name}。")
+                },
+                "巧解绕行（−${(dmg * 0.5f).toInt()}HP）" to {
+                    meta.curHp = (meta.curHp - dmg * 0.5f).coerceAtLeast(1f)
+                    meta.addJournal("巧解绕过了${node.name}。")
                 }
             )
             setScreen(Screen.EVENT)

@@ -577,7 +577,8 @@ private fun scaleStage(st: StageDef, mul: Float, seed: Long, inkRank: Int): Stag
             n.copy(
                 goldDrop = (n.goldDrop * gMul).toInt().coerceAtLeast(if (n.goldDrop > 0) 1 else 0),
                 trapDmg = n.trapDmg * mutationTrapScale(inkRank),
-                waves = n.waves.map { w ->
+                // 前两章节奏收紧：每场战斗至多 3/4 波（战斗疲劳是大问题）
+                waves = n.waves.take(if (st.id == 0) 3 else if (st.id == 1) 4 else n.waves.size).map { w ->
                     WaveDef(w.enemies.map { e ->
                         e.copy(
                             hp = e.hp * mul * mercyHp * (0.96f + rng.nextFloat() * 0.08f),
