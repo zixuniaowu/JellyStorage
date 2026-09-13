@@ -152,8 +152,8 @@ private fun DrawScope.drawOrganMapAnatomy(ch: Int, w: Float, h: Float, pulse: Fl
                 cubicTo(w * 0.38f, h * 0.38f, w * 0.38f, h * 0.30f, w * 0.34f, h * 0.26f)
                 close()
             }
-            drawPath(leftLung, Color(0x22BAE6FD))
-            drawPath(leftLung, Color(0x5538BDF8), style = Stroke(3f))
+            drawPath(leftLung, Color(0x40BAE6FD))
+            drawPath(leftLung, Color(0x8838BDF8), style = Stroke(3f))
             // 右肺（画面右侧，稍大因为有三叶）
             val rightLung = Path().apply {
                 moveTo(w * 0.66f, h * 0.26f)
@@ -163,8 +163,8 @@ private fun DrawScope.drawOrganMapAnatomy(ch: Int, w: Float, h: Float, pulse: Fl
                 cubicTo(w * 0.62f, h * 0.38f, w * 0.62f, h * 0.30f, w * 0.66f, h * 0.26f)
                 close()
             }
-            drawPath(rightLung, Color(0x22BAE6FD))
-            drawPath(rightLung, Color(0x5538BDF8), style = Stroke(3f))
+            drawPath(rightLung, Color(0x40BAE6FD))
+            drawPath(rightLung, Color(0x8838BDF8), style = Stroke(3f))
             // 肺泡纹理：两肺内部散布圆形肺泡
             val alveoliRng = Random(42)
             for (i in 0 until 36) {
