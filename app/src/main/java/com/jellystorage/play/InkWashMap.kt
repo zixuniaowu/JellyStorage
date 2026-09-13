@@ -64,103 +64,285 @@ private fun organMapColors(ch: Int): Triple<Color, Color, Color> = when (ch) {
 }
 
 private fun DrawScope.drawOrganMapAnatomy(ch: Int, w: Float, h: Float, pulse: Float, accent: Color) {
+    val breathe = 1f + sin(pulse * 2.2f) * 0.015f
+
     when (ch) {
-        0 -> { // 表皮分层、创口与毛囊
-            for (layer in 0..3) {
-                val y = h * (0.22f + layer * 0.14f)
-                val path = Path().apply {
-                    moveTo(-20f, y)
-                    for (i in 0..12) {
-                        val x = w * i / 11f
-                        lineTo(x, y + sin(i * 0.8f + layer + pulse * 0.15f) * h * 0.025f)
-                    }
-                }
-                drawPath(path, Color.White.copy(alpha = 0.12f), style = Stroke(18f - layer * 2f, cap = StrokeCap.Round))
-                drawPath(path, accent.copy(alpha = 0.16f), style = Stroke(2.2f, cap = StrokeCap.Round))
+        0 -> { // ── 皮肤：表皮分层横切面 + 毛囊 + 汗腺 ──
+            // 皮肤各层用不同色带（角质层→透明层→颗粒层→棘层→基底层）
+            val layers = listOf(
+                Triple(0.10f, 0.20f, Color(0xFFFFE8D6)),  // 角质层
+                Triple(0.20f, 0.34f, Color(0xFFFFDCC5)),  // 透明层
+                Triple(0.34f, 0.52f, Color(0xFFF5C9B0)),  // 颗粒层
+                Triple(0.52f, 0.74f, Color(0xFFEBA890)),  // 棘层
+                Triple(0.74f, 0.88f, Color(0xFFD4927A))   // 基底层
+            )
+            layers.forEach { (top, bot, col) ->
+                drawRect(col.copy(alpha = 0.25f), Offset(0f, h * top), Size(w, h * (bot - top)))
+                // 层间分界线
+                drawLine(
+                    Color(0x33BE123C), Offset(0f, h * top), Offset(w, h * top), 1.5f,
+                    cap = StrokeCap.Round
+                )
             }
+            // 毛囊（斜向管道 + 毛干）
+            for (i in 0 until 8) {
+                val fx = w * (0.08f + i * 0.12f)
+                val fy = h * 0.10f
+                val depth = h * (0.30f + (i % 3) * 0.12f)
+                val tilt = if (i % 2 == 0) 0.15f else -0.12f
+                // 毛囊管道
+                drawLine(
+                    Color(0x44BE123C), Offset(fx, fy),
+                    Offset(fx + tilt * depth, fy + depth), 6f, StrokeCap.Round
+                )
+                // 毛干
+                drawLine(
+                    Color(0xFF7A5040).copy(alpha = 0.5f), Offset(fx + tilt * depth, fy + depth),
+                    Offset(fx + tilt * depth * 1.15f, fy + depth * 1.12f), 3f, StrokeCap.Round
+                )
+                // 毛囊根部（毛球）
+                drawCircle(Color(0x33BE123C), 5f, Offset(fx + tilt * depth, fy + depth))
+            }
+            // 汗腺（螺旋卷曲）
+            for (i in 0 until 4) {
+                val sx = w * (0.18f + i * 0.22f)
+                val sy = h * 0.82f
+                val spiral = Path()
+                for (k in 0..20) {
+                    val t = k / 20f
+                    val a = t * 4f * 3.14159f
+                    val r = t * 12f
+                    val px = sx + cos(a) * r
+                    val py = sy + sin(a) * r * 0.6f
+                    if (k == 0) spiral.moveTo(px, py) else spiral.lineTo(px, py)
+                }
+                drawPath(spiral, Color(0x444A6741), style = Stroke(2f))
+            }
+            // 创口裂痕
             val wound = Path().apply {
-                moveTo(w * 0.49f, h * 0.16f)
-                lineTo(w * 0.46f, h * 0.28f)
-                lineTo(w * 0.51f, h * 0.38f)
-                lineTo(w * 0.47f, h * 0.50f)
+                moveTo(w * 0.48f, h * 0.12f)
+                lineTo(w * 0.46f, h * 0.24f); lineTo(w * 0.52f, h * 0.36f)
+                lineTo(w * 0.47f, h * 0.50f); lineTo(w * 0.51f, h * 0.62f)
+                lineTo(w * 0.48f, h * 0.74f)
             }
-            drawPath(wound, Color(0x55BE123C), style = Stroke(10f, cap = StrokeCap.Round))
+            drawPath(wound, Color(0x55BE123C), style = Stroke(8f, cap = StrokeCap.Round))
+            drawPath(wound, Color(0x22FFFFFF), style = Stroke(14f, cap = StrokeCap.Round))
         }
-        1 -> { // 支气管树与肺泡簇
-            val trunk = Path().apply {
-                moveTo(w * 0.50f, h * 0.12f)
-                cubicTo(w * 0.50f, h * 0.25f, w * 0.44f, h * 0.29f, w * 0.40f, h * 0.38f)
-                moveTo(w * 0.50f, h * 0.24f)
-                cubicTo(w * 0.53f, h * 0.31f, w * 0.59f, h * 0.32f, w * 0.64f, h * 0.42f)
+
+        1 -> { // ── 肺部：左右肺叶 + 气管支气管树 + 肺泡纹理 ──
+            // 气管
+            drawRoundRect(
+                Color(0x44E0F2FE), Offset(w * 0.475f, h * 0.06f), Size(w * 0.05f, h * 0.14f),
+                CornerRadius(4f)
+            )
+            // 支气管分叉
+            val bronchus = Path().apply {
+                moveTo(w * 0.50f, h * 0.18f)
+                cubicTo(w * 0.48f, h * 0.22f, w * 0.38f, h * 0.25f, w * 0.32f, h * 0.28f)
+                moveTo(w * 0.50f, h * 0.18f)
+                cubicTo(w * 0.52f, h * 0.22f, w * 0.62f, h * 0.25f, w * 0.68f, h * 0.28f)
             }
-            drawPath(trunk, accent.copy(alpha = 0.30f), style = Stroke(14f, cap = StrokeCap.Round))
-            val centers = listOf(0.25f to 0.35f, 0.32f to 0.52f, 0.70f to 0.36f, 0.63f to 0.54f, 0.48f to 0.48f)
-            centers.forEachIndexed { index, (cx, cy) ->
-                for (a in 0 until 6) {
-                    val ang = a * 1.0472f
-                    val p = Offset(w * cx + cos(ang) * 24f, h * cy + sin(ang) * 18f)
-                    val r = 16f + sin(pulse * 1.2f + index + a) * 1.5f
-                    drawCircle(Color.White.copy(alpha = 0.10f), r, p)
-                    drawCircle(accent.copy(alpha = 0.22f), r, p, style = Stroke(1.8f))
-                }
-            }
-        }
-        2 -> { // 肠道盘曲通路与绒毛
-            for (row in 0..3) {
-                val y = h * (0.22f + row * 0.12f)
-                val path = Path().apply {
-                    moveTo(w * 0.12f, y)
-                    cubicTo(w * 0.34f, y - h * 0.08f, w * 0.66f, y + h * 0.08f, w * 0.88f, y)
-                }
-                drawPath(path, Color.White.copy(alpha = 0.10f), style = Stroke(34f, cap = StrokeCap.Round))
-                drawPath(path, accent.copy(alpha = 0.24f), style = Stroke(4f, cap = StrokeCap.Round))
-            }
-            for (i in 0 until 28) {
-                val x = w * (0.10f + (i % 14) * 0.062f)
-                val y = h * (0.19f + (i / 14) * 0.48f)
-                drawLine(Color.White.copy(alpha = 0.14f), Offset(x, y), Offset(x + sin(i.toFloat()) * 5f, y + 18f), 3f, StrokeCap.Round)
-            }
-        }
-        3 -> { // 肝脏轮廓与肝小叶
-            val liver = Path().apply {
-                moveTo(w * 0.18f, h * 0.25f)
-                cubicTo(w * 0.34f, h * 0.13f, w * 0.76f, h * 0.16f, w * 0.84f, h * 0.31f)
-                cubicTo(w * 0.79f, h * 0.56f, w * 0.56f, h * 0.64f, w * 0.28f, h * 0.57f)
-                cubicTo(w * 0.17f, h * 0.50f, w * 0.12f, h * 0.36f, w * 0.18f, h * 0.25f)
+            drawPath(bronchus, Color(0x66BAE6FD), style = Stroke(8f, cap = StrokeCap.Round))
+            // 左肺（画面左侧）
+            val leftLung = Path().apply {
+                moveTo(w * 0.34f, h * 0.26f)
+                cubicTo(w * 0.18f, h * 0.22f, w * 0.06f, h * 0.32f, w * 0.05f, h * 0.52f)
+                cubicTo(w * 0.04f, h * 0.66f, w * 0.10f, h * 0.78f, w * 0.22f, h * 0.78f)
+                cubicTo(w * 0.34f, h * 0.78f, w * 0.38f, h * 0.62f, w * 0.38f, h * 0.48f)
+                cubicTo(w * 0.38f, h * 0.38f, w * 0.38f, h * 0.30f, w * 0.34f, h * 0.26f)
                 close()
             }
-            drawPath(liver, Color.White.copy(alpha = 0.08f))
-            drawPath(liver, accent.copy(alpha = 0.25f), style = Stroke(3f))
-            for (i in 0 until 18) {
-                val cx = w * (0.25f + (i % 6) * 0.10f)
-                val cy = h * (0.28f + (i / 6) * 0.12f)
+            drawPath(leftLung, Color(0x22BAE6FD))
+            drawPath(leftLung, Color(0x5538BDF8), style = Stroke(3f))
+            // 右肺（画面右侧，稍大因为有三叶）
+            val rightLung = Path().apply {
+                moveTo(w * 0.66f, h * 0.26f)
+                cubicTo(w * 0.82f, h * 0.22f, w * 0.94f, h * 0.32f, w * 0.95f, h * 0.52f)
+                cubicTo(w * 0.96f, h * 0.66f, w * 0.90f, h * 0.78f, w * 0.78f, h * 0.78f)
+                cubicTo(w * 0.66f, h * 0.78f, w * 0.62f, h * 0.62f, w * 0.62f, h * 0.48f)
+                cubicTo(w * 0.62f, h * 0.38f, w * 0.62f, h * 0.30f, w * 0.66f, h * 0.26f)
+                close()
+            }
+            drawPath(rightLung, Color(0x22BAE6FD))
+            drawPath(rightLung, Color(0x5538BDF8), style = Stroke(3f))
+            // 肺泡纹理：两肺内部散布圆形肺泡
+            val alveoliRng = Random(42)
+            for (i in 0 until 36) {
+                val side = if (i % 2 == 0) 0.08f..0.34f else 0.66f..0.92f
+                val ax = w * (side.start + alveoliRng.nextFloat() * (side.endInclusive - side.start))
+                val ay = h * (0.30f + alveoliRng.nextFloat() * 0.42f)
+                val ar = 6f + alveoliRng.nextFloat() * 10f + sin(pulse + i) * 1.5f
+                drawCircle(Color.White.copy(alpha = 0.10f), ar, Offset(ax, ay))
+                drawCircle(Color(0x337DD3FC), ar, Offset(ax, ay), style = Stroke(1.2f))
+            }
+            // 膈肌弧线（肺底部）
+            val diaphragm = Path().apply {
+                moveTo(w * 0.04f, h * 0.78f)
+                quadraticBezierTo(w * 0.50f, h * 0.84f, w * 0.96f, h * 0.78f)
+            }
+            drawPath(diaphragm, Color(0x448899AA), style = Stroke(4f, cap = StrokeCap.Round))
+        }
+
+        2 -> { // ── 胃肠：胃袋 J 形 + 小肠盘曲 + 大肠边框 ──
+            // 胃袋（J 形囊袋，画面中偏左上）
+            val stomach = Path().apply {
+                moveTo(w * 0.28f, h * 0.14f)
+                cubicTo(w * 0.22f, h * 0.10f, w * 0.14f, h * 0.14f, w * 0.13f, h * 0.24f)
+                cubicTo(w * 0.12f, h * 0.38f, w * 0.18f, h * 0.54f, w * 0.32f, h * 0.58f)
+                cubicTo(w * 0.42f, h * 0.61f, w * 0.52f, h * 0.55f, w * 0.52f, h * 0.46f)
+                cubicTo(w * 0.52f, h * 0.36f, w * 0.44f, h * 0.30f, w * 0.40f, h * 0.22f)
+                cubicTo(w * 0.37f, h * 0.16f, w * 0.33f, h * 0.14f, w * 0.28f, h * 0.14f)
+                close()
+            }
+            drawPath(stomach, Color(0x22F5C9B0))
+            drawPath(stomach, Color(0x55D4927A), style = Stroke(3.5f))
+            // 胃内皱褶线
+            for (i in 0..2) {
+                val fold = Path().apply {
+                    moveTo(w * 0.18f, h * (0.22f + i * 0.08f))
+                    quadraticBezierTo(w * 0.28f, h * (0.28f + i * 0.08f), w * 0.38f, h * (0.22f + i * 0.08f))
+                }
+                drawPath(fold, Color(0x33BE123C), style = Stroke(2f, cap = StrokeCap.Round))
+            }
+            // 幽门到十二指肠
+            drawLine(
+                Color(0x66D4927A), Offset(w * 0.50f, h * 0.46f), Offset(w * 0.58f, h * 0.52f), 8f, StrokeCap.Round
+            )
+            // 小肠盘曲（六段弯折管道）
+            val smallIntestine = Path().apply {
+                moveTo(w * 0.58f, h * 0.52f)
+                cubicTo(w * 0.70f, h * 0.50f, w * 0.78f, h * 0.56f, w * 0.72f, h * 0.64f)
+                cubicTo(w * 0.66f, h * 0.72f, w * 0.50f, h * 0.68f, w * 0.44f, h * 0.72f)
+                cubicTo(w * 0.38f, h * 0.76f, w * 0.52f, h * 0.82f, w * 0.64f, h * 0.80f)
+                cubicTo(w * 0.76f, h * 0.78f, w * 0.82f, h * 0.72f, w * 0.80f, h * 0.66f)
+            }
+            drawPath(smallIntestine, Color(0x22C4B5FD), style = Stroke(26f, cap = StrokeCap.Round))
+            drawPath(smallIntestine, Color(0x44A78BFA), style = Stroke(3.5f, cap = StrokeCap.Round))
+            // 大肠框边（从右下→上→左→下）
+            val largeIntestine = Path().apply {
+                moveTo(w * 0.82f, h * 0.66f)
+                lineTo(w * 0.84f, h * 0.40f)
+                cubicTo(w * 0.84f, h * 0.32f, w * 0.78f, h * 0.28f, w * 0.72f, h * 0.30f)
+                lineTo(w * 0.16f, h * 0.32f)
+                cubicTo(w * 0.10f, h * 0.32f, w * 0.08f, h * 0.38f, w * 0.10f, h * 0.48f)
+                lineTo(w * 0.12f, h * 0.62f)
+            }
+            drawPath(largeIntestine, Color(0x18A3E635), style = Stroke(20f, cap = StrokeCap.Round))
+            drawPath(largeIntestine, Color(0x33A3E635), style = Stroke(3f, cap = StrokeCap.Round))
+        }
+
+        3 -> { // ── 肝脏：大体肝脏楔形 + 胆囊 + 肝门血管 ──
+            // 肝脏主体（大型楔形，右上腹占位）
+            val liver = Path().apply {
+                moveTo(w * 0.10f, h * 0.20f)
+                cubicTo(w * 0.08f, h * 0.14f, w * 0.20f, h * 0.08f, w * 0.40f, h * 0.08f)
+                cubicTo(w * 0.62f, h * 0.08f, w * 0.84f, h * 0.12f, w * 0.90f, h * 0.24f)
+                cubicTo(w * 0.94f, h * 0.34f, w * 0.88f, h * 0.48f, w * 0.72f, h * 0.56f)
+                cubicTo(w * 0.58f, h * 0.63f, w * 0.36f, h * 0.64f, w * 0.22f, h * 0.58f)
+                cubicTo(w * 0.12f, h * 0.53f, w * 0.08f, h * 0.42f, w * 0.10f, h * 0.28f)
+                close()
+            }
+            drawPath(liver, Color(0x22D4A574))
+            drawPath(liver, Color(0x55B45309), style = Stroke(3.5f))
+            // 镰状韧带分界线（左右肝分界）
+            drawLine(
+                Color(0x44B45309), Offset(w * 0.42f, h * 0.10f), Offset(w * 0.44f, h * 0.52f), 3f,
+                cap = StrokeCap.Round
+            )
+            // 胆囊（梨形，肝下缘）
+            val gallbladder = Path().apply {
+                moveTo(w * 0.52f, h * 0.54f)
+                cubicTo(w * 0.50f, h * 0.60f, w * 0.52f, h * 0.66f, w * 0.58f, h * 0.68f)
+                cubicTo(w * 0.63f, h * 0.69f, w * 0.66f, h * 0.64f, w * 0.63f, h * 0.58f)
+                cubicTo(w * 0.61f, h * 0.54f, w * 0.56f, h * 0.52f, w * 0.52f, h * 0.54f)
+                close()
+            }
+            drawPath(gallbladder, Color(0x33A3E635))
+            drawPath(gallbladder, Color(0x5565A30D), style = Stroke(2f))
+            // 肝门血管（门静脉+肝动脉分叉）
+            val portalVein = Path().apply {
+                moveTo(w * 0.48f, h * 0.56f)
+                cubicTo(w * 0.48f, h * 0.48f, w * 0.42f, h * 0.42f, w * 0.36f, h * 0.38f)
+                moveTo(w * 0.48f, h * 0.52f)
+                cubicTo(w * 0.54f, h * 0.46f, w * 0.62f, h * 0.42f, w * 0.68f, h * 0.38f)
+            }
+            drawPath(portalVein, Color(0x44885B6B), style = Stroke(6f, cap = StrokeCap.Round))
+            // 肝小叶六角纹理
+            val hepRng = Random(77)
+            for (i in 0 until 22) {
+                val hx = w * (0.14f + hepRng.nextFloat() * 0.72f)
+                val hy = h * (0.14f + hepRng.nextFloat() * 0.42f)
+                if (hx < w * 0.06f || hx > w * 0.94f) continue
+                val hexR = 10f + hepRng.nextFloat() * 8f
                 val hex = Path()
                 for (k in 0..6) {
-                    val a = k * 1.0472f
-                    val p = Offset(cx + cos(a) * 18f, cy + sin(a) * 14f)
+                    val a = k * 1.0472f + 0.5f
+                    val p = Offset(hx + cos(a) * hexR, hy + sin(a) * hexR * 0.85f)
                     if (k == 0) hex.moveTo(p.x, p.y) else hex.lineTo(p.x, p.y)
                 }
-                drawPath(hex, accent.copy(alpha = 0.18f), style = Stroke(1.5f))
+                drawPath(hex, Color(0x22B45309), style = Stroke(1.2f))
             }
         }
-        else -> { // 心脏四腔与大血管
-            val beat = 1f + sin(pulse * 2.8f) * 0.025f
-            val heart = Path().apply {
-                moveTo(w * 0.50f, h * 0.62f)
-                cubicTo(w * (0.21f / beat), h * 0.45f, w * 0.27f, h * 0.18f, w * 0.43f, h * 0.25f)
-                cubicTo(w * 0.50f, h * 0.12f, w * 0.73f, h * 0.18f, w * 0.74f, h * 0.36f)
-                cubicTo(w * 0.73f, h * 0.49f, w * 0.60f, h * 0.57f, w * 0.50f, h * 0.62f)
+
+        else -> { // ── 心脏：四腔心 + 主动脉弓 + 肺动脉 + 冠状动脉 ──
+            val beat = 1f + sin(pulse * 3.2f) * 0.03f
+            // 心外膜（心包脂肪层）
+            val pericardium = Path().apply {
+                moveTo(w * 0.50f, h * 0.66f)
+                cubicTo(w * 0.18f, h * 0.52f, w * 0.14f, h * 0.28f, w * 0.26f, h * 0.16f)
+                cubicTo(w * 0.36f, h * 0.06f, w * 0.48f, h * 0.10f, w * 0.50f, h * 0.22f)
+                cubicTo(w * 0.52f, h * 0.10f, w * 0.66f, h * 0.06f, w * 0.76f, h * 0.16f)
+                cubicTo(w * 0.88f, h * 0.28f, w * 0.84f, h * 0.52f, w * 0.50f, h * 0.66f)
                 close()
             }
-            drawPath(heart, Color.White.copy(alpha = 0.09f))
-            drawPath(heart, accent.copy(alpha = 0.30f), style = Stroke(4f))
-            drawLine(accent.copy(alpha = 0.26f), Offset(w * 0.50f, h * 0.22f), Offset(w * 0.50f, h * 0.57f), 5f)
-            drawLine(accent.copy(alpha = 0.22f), Offset(w * 0.34f, h * 0.38f), Offset(w * 0.68f, h * 0.38f), 4f)
-            val vessel = Path().apply {
-                moveTo(w * 0.56f, h * 0.24f)
-                cubicTo(w * 0.58f, h * 0.08f, w * 0.82f, h * 0.10f, w * 0.91f, h * 0.20f)
+            drawPath(pericardium, Color(0x18FF8A92))
+            drawPath(pericardium, Color(0x33FF8A92), style = Stroke(2f))
+            // 心脏主体（略偏左，心尖朝左下）
+            val heart = Path().apply {
+                moveTo(w * 0.46f, h * 0.62f)
+                cubicTo(w * (0.20f / beat), h * 0.48f, w * 0.16f, h * 0.28f, w * 0.28f, h * 0.20f)
+                cubicTo(w * 0.36f, h * 0.14f, w * 0.46f, h * 0.16f, w * 0.48f, h * 0.26f)
+                cubicTo(w * 0.50f, h * 0.16f, w * 0.62f, h * 0.14f, w * 0.72f, h * 0.20f)
+                cubicTo(w * 0.84f, h * 0.28f, w * 0.80f, h * 0.48f, w * 0.54f, h * 0.62f)
+                close()
             }
-            drawPath(vessel, accent.copy(alpha = 0.32f), style = Stroke(18f, cap = StrokeCap.Round))
+            drawPath(heart, Color(0x22FF6B6B))
+            drawPath(heart, Color(0x66FF8A92), style = Stroke(3.5f))
+            // 室间隔（左右心室分界）
+            drawLine(
+                Color(0x55FFB4B4), Offset(w * 0.50f, h * 0.28f), Offset(w * 0.48f, h * 0.60f), 3f,
+                cap = StrokeCap.Round
+            )
+            // 主动脉弓（从心底部上弯再下行）
+            val aorta = Path().apply {
+                moveTo(w * 0.48f, h * 0.26f)
+                cubicTo(w * 0.48f, h * 0.14f, w * 0.52f, h * 0.06f, w * 0.62f, h * 0.06f)
+                cubicTo(w * 0.72f, h * 0.06f, w * 0.78f, h * 0.12f, w * 0.76f, h * 0.22f)
+                cubicTo(w * 0.74f, h * 0.30f, w * 0.70f, h * 0.36f, w * 0.68f, h * 0.40f)
+            }
+            drawPath(aorta, Color(0x55FBBF24), style = Stroke(9f, cap = StrokeCap.Round))
+            // 肺动脉（从右心室向左弯）
+            val pulmArt = Path().apply {
+                moveTo(w * 0.50f, h * 0.24f)
+                cubicTo(w * 0.48f, h * 0.14f, w * 0.36f, h * 0.08f, w * 0.26f, h * 0.10f)
+            }
+            drawPath(pulmArt, Color(0x447DD3FC), style = Stroke(7f, cap = StrokeCap.Round))
+            // 冠状动脉（心脏表面的血管网络）
+            val coronary = Path().apply {
+                moveTo(w * 0.44f, h * 0.28f)
+                cubicTo(w * 0.38f, h * 0.34f, w * 0.32f, h * 0.42f, w * 0.36f, h * 0.50f)
+                moveTo(w * 0.56f, h * 0.28f)
+                cubicTo(w * 0.62f, h * 0.34f, w * 0.66f, h * 0.42f, w * 0.60f, h * 0.52f)
+            }
+            drawPath(coronary, Color(0x44EF4444), style = Stroke(2.5f, cap = StrokeCap.Round))
+            // 心房纹理线
+            for (i in 0..2) {
+                drawLine(
+                    Color(0x22FFB4B4),
+                    Offset(w * (0.28f + i * 0.06f), h * 0.20f),
+                    Offset(w * (0.30f + i * 0.06f), h * 0.32f), 1.5f
+                )
+            }
         }
     }
 }
