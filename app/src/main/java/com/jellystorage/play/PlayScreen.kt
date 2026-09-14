@@ -2142,14 +2142,16 @@ private fun enterNode(
                         else -> {
                             val acc = RingCatalog.byId(id) ?: BootsCatalog.byId(id)
                             if (acc != null) {
-                                val freshRing = meta.grantRing(acc)
-                                val freshBoots = if (freshRing) false else meta.grantBoots(acc)
-                                if (freshRing && meta.equippedRingId.isBlank()) meta.equipRing(acc.id)
-                                if (freshBoots && meta.equippedBootsId.isBlank()) meta.equipBoots(acc.id)
-                                outcome = if (freshRing || freshBoots) "宝物入手：「${acc.name}」"
-                                else {
-                                    meta.gold += 12; meta.goldEarnedThisRun += 12
-                                    "已是旧识（已有），折算 +12 金"
+                                val isRing = RingCatalog.byId(id) != null
+                                val fresh = if (isRing) meta.grantRing(acc) else meta.grantBoots(acc)
+                                if (fresh) {
+                                    // 自动穿更好的（戒指比技伤+吸蓝，鞋比速度+血）
+                                    if (isRing && meta.equippedRingId.isBlank()) meta.equipRing(acc.id)
+                                    if (!isRing && meta.equippedBootsId.isBlank()) meta.equipBoots(acc.id)
+                                    outcome = "宝物入手：「${acc.name}」"
+                                } else {
+                                    meta.gold += 15; meta.goldEarnedThisRun += 15
+                                    outcome = "重复装备 → +15 金"
                                 }
                             }
                         }

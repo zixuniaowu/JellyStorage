@@ -24,3 +24,5 @@ gradle_out.txt
 Thumbs.db
 *.log
 playlog.txt
+e2e_log.txt
+e2e_shots/
